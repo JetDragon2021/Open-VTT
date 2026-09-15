@@ -1,0 +1,148 @@
+[gd_scene load_steps=2 format=3 uid="uid://bridge_panel"]
+
+[ext_resource type="Script" path="res://scripts/bridge_panel.gd" id="1_bridge"]
+
+[node name="BridgePanel" type="Window"]
+title = "GM Companion Bridge"
+size = Vector2i(460, 680)
+script = ExtResource("1_bridge")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = 12.0
+offset_right = -12.0
+offset_bottom = -12.0
+
+[node name="TabContainer" type="TabContainer" parent="VBoxContainer"]
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Connection" type="VBoxContainer" parent="VBoxContainer/TabContainer"]
+
+[node name="URLLabel" type="Label" parent="VBoxContainer/TabContainer/Connection"]
+text = "Companion URL"
+
+[node name="URLInput" type="LineEdit" parent="VBoxContainer/TabContainer/Connection"]
+name = "URLInput"
+placeholder_text = "https://your-app.vercel.app"
+size_flags_horizontal = 3
+
+[node name="SecretLabel" type="Label" parent="VBoxContainer/TabContainer/Connection"]
+text = "Bridge Secret"
+
+[node name="SecretInput" type="LineEdit" parent="VBoxContainer/TabContainer/Connection"]
+name = "SecretInput"
+secret = true
+placeholder_text = "dev-bridge-secret"
+size_flags_horizontal = 3
+
+[node name="ButtonRow" type="HBoxContainer" parent="VBoxContainer/TabContainer/Connection"]
+
+[node name="SaveButton" type="Button" parent="VBoxContainer/TabContainer/Connection/ButtonRow"]
+name = "SaveButton"
+text = "Save"
+
+[node name="TestButton" type="Button" parent="VBoxContainer/TabContainer/Connection/ButtonRow"]
+name = "TestButton"
+text = "Test Connection"
+
+[node name="Separator1" type="HSeparator" parent="VBoxContainer/TabContainer/Connection"]
+
+[node name="StatusLabel" type="Label" parent="VBoxContainer/TabContainer/Connection"]
+name = "StatusLabel"
+text = "Not configured"
+autowrap_mode = 3
+
+[node name="Separator2" type="HSeparator" parent="VBoxContainer/TabContainer/Connection"]
+
+[node name="SessionRow" type="HBoxContainer" parent="VBoxContainer/TabContainer/Connection"]
+
+[node name="StartButton" type="Button" parent="VBoxContainer/TabContainer/Connection/SessionRow"]
+name = "StartButton"
+text = "Start Session"
+
+[node name="EndButton" type="Button" parent="VBoxContainer/TabContainer/Connection/SessionRow"]
+name = "EndButton"
+text = "End Session"
+
+[node name="Separator3" type="HSeparator" parent="VBoxContainer/TabContainer/Connection"]
+
+[node name="LogLabel" type="Label" parent="VBoxContainer/TabContainer/Connection"]
+name = "LogLabel"
+text = "No events yet."
+autowrap_mode = 3
+size_flags_vertical = 3
+
+[node name="Compendium" type="VBoxContainer" parent="VBoxContainer/TabContainer"]
+
+[node name="SearchRow" type="HBoxContainer" parent="VBoxContainer/TabContainer/Compendium"]
+
+[node name="SearchInput" type="LineEdit" parent="VBoxContainer/TabContainer/Compendium/SearchRow"]
+name = "SearchInput"
+placeholder_text = "Search monsters…"
+size_flags_horizontal = 3
+
+[node name="TypeFilter" type="OptionButton" parent="VBoxContainer/TabContainer/Compendium/SearchRow"]
+name = "TypeFilter"
+
+[node name="ResultsList" type="ItemList" parent="VBoxContainer/TabContainer/Compendium"]
+name = "ResultsList"
+select_mode = 0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+custom_minimum_size = Vector2(0, 100)
+
+[node name="DetailPanel" type="VBoxContainer" parent="VBoxContainer/TabContainer/Compendium"]
+name = "DetailPanel"
+visible = false
+
+[node name="MonsterNameLabel" type="Label" parent="VBoxContainer/TabContainer/Compendium/DetailPanel"]
+name = "MonsterNameLabel"
+text = ""
+theme_override_font_sizes/font_size = 16
+
+[node name="StatsLabel" type="Label" parent="VBoxContainer/TabContainer/Compendium/DetailPanel"]
+name = "StatsLabel"
+text = ""
+
+[node name="TypeLabel" type="Label" parent="VBoxContainer/TabContainer/Compendium/DetailPanel"]
+name = "TypeLabel"
+text = ""
+
+[node name="AbilitiesScroll" type="ScrollContainer" parent="VBoxContainer/TabContainer/Compendium/DetailPanel"]
+name = "AbilitiesScroll"
+custom_minimum_size = Vector2(0, 160)
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="AbilitiesLabel" type="Label" parent="VBoxContainer/TabContainer/Compendium/DetailPanel/AbilitiesScroll"]
+name = "AbilitiesLabel"
+text = ""
+autowrap_mode = 3
+size_flags_horizontal = 3
+
+[node name="AttributionLabel" type="Label" parent="VBoxContainer/TabContainer/Compendium/DetailPanel"]
+name = "AttributionLabel"
+text = "Data: 5etools community dataset"
+theme_override_colors/font_color = Color(0.6, 0.6, 0.6, 1)
+
+[node name="NameRow" type="HBoxContainer" parent="VBoxContainer/TabContainer/Compendium"]
+name = "NameRow"
+visible = false
+
+[node name="NameInput" type="LineEdit" parent="VBoxContainer/TabContainer/Compendium/NameRow"]
+name = "NameInput"
+size_flags_horizontal = 3
+
+[node name="AddButton" type="Button" parent="VBoxContainer/TabContainer/Compendium"]
+name = "AddButton"
+text = "Add to VTT"
+visible = false
+
+[node name="CompendiumStatusLabel" type="Label" parent="VBoxContainer/TabContainer/Compendium"]
+name = "CompendiumStatusLabel"
+text = ""
+autowrap_mode = 3

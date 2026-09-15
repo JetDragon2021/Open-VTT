@@ -39,7 +39,9 @@ func _drop_data(position, data):
 			token.character.load_attr_modifiers_from_equipment()
 		token.set_meta("type", "token")
 		Globals.draw_layer.add_child(token)
-		Globals.map.add_token(token)
+		var map_ref = Globals.map if Globals.map != null else Globals.new_map
+		if map_ref != null:
+			map_ref.add_token(token)
 		token.light_mask = Globals.draw_layer.light_mask
 		token.fov.shadow_item_cull_mask = Globals.draw_layer.light_mask
 		Globals.draw_comp.create_object_on_remote_peers(token, true)

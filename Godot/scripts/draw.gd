@@ -149,6 +149,9 @@ func _unhandled_input(event):
 		if Globals.tool == "select" and event is InputEventMouseButton and event.double_click:
 			if selected.size() == 1:
 				if "character" in selected[0]: #single token - open character sheet
+					if Globals.windows == null:
+						push_error("[draw] Globals.windows is null — cannot open character sheet")
+						return
 					var ch_sh = char_sheet.instantiate()
 					ch_sh.character = selected[0].character
 					Globals.windows.add_child(ch_sh)
@@ -162,7 +165,8 @@ func _unhandled_input(event):
 		if Input.is_action_just_pressed("mouseleft"):
 			print("mouse pressed")
 			draw_enable = true
-			Globals.tool_bar.grab_focus()
+			if Globals.tool_bar != null:
+				Globals.tool_bar.grab_focus()
 		#end any dragging
 		if Input.is_action_just_released("mouseleft"):
 			print("mouse released")

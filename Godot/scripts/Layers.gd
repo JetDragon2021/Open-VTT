@@ -30,7 +30,7 @@ func _on_tree_item_activated():
 #select layer
 func _on_tree_item_selected():
 	Globals.draw_layer = tree.get_selected().get_meta("draw_layer")
-	if Globals.map.fov_enable:
+	if Globals.map != null and Globals.map.fov_enable:
 		set_layers_visibility()
 		set_token_visibility(Globals.draw_layer.light_mask)
 
@@ -246,4 +246,3 @@ func reset_layers_visibility():
 	var tree_layers = tree.get_root().get_children()
 	for tree_layer in tree_layers:
 		set_layer_visibility(tree_layer.get_meta("draw_layer"))
-

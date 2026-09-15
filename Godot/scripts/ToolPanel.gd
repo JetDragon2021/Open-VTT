@@ -21,12 +21,26 @@ func _ready():
 	
 
 func _on_tree_item_activated():
+	print("[ToolPanel] item activated")
+	var selected = tree.get_selected()
+	if selected == null:
+		print("[ToolPanel] BAIL: no item selected")
+		return
+	print("[ToolPanel] selected item: ", selected.get_text(0))
+	print("[ToolPanel] has character meta: ", selected.has_meta("character"))
 	var ch_sh = char_sheet.instantiate()
 	ch_sh.token_sheet = false
-	ch_sh.character = tree.get_selected().get_meta("character")
+	ch_sh.character = selected.get_meta("character") if selected.has_meta("character") else null
 	if ch_sh.character == null:
+		print("[ToolPanel] BAIL: character is null on selected item")
+		return
+	print("[ToolPanel] character ok: ", ch_sh.character.name)
+	print("[ToolPanel] Globals.windows = ", Globals.windows)
+	if Globals.windows == null:
+		push_error("[ToolPanel] BAIL: Globals.windows is null — map scene not ready")
 		return
 	Globals.windows.add_child(ch_sh)
+	print("[ToolPanel] character sheet opened")
 
 
 func _on_tree_item_selected():

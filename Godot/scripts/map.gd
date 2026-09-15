@@ -9,10 +9,10 @@ var char_sheet = preload("res://UI/character_sheet.tscn")
 
 func _enter_tree():
 	Globals.BG_ColorRect = $BackgroundCanvasLayer/BackgroundColorRect
-	Globals.windows = $CanvasLayer/Windows
 
 # Called when the node enters the scene tree for the first time.
 func _ready():
+	Globals.windows = $CanvasLayer/Windows
 	#make image folder
 	if not DirAccess.dir_exists_absolute(Globals.base_dir_path + "/images/" + Globals.campaign.campaign_name):
 		DirAccess.make_dir_recursive_absolute(Globals.base_dir_path + "/images/" + Globals.campaign.campaign_name)
@@ -131,5 +131,3 @@ func set_owner_on_self_and_children(node, owner: Node2D):
 		
 	
 		
-
-

@@ -26,19 +26,20 @@ func _ready(token_fov = true):
 	
 	#darkness and fov
 	darkness.visible = Globals.new_map.darkness_enable
-	Globals.BG_ColorRect.color = Globals.new_map.background_color
+	if Globals.BG_ColorRect != null:
+		Globals.BG_ColorRect.color = Globals.new_map.background_color
 	fov.visible = Globals.new_map.fov_enable
 	print(token_fov)
 	if token_fov:
 		emit_signal("fov_opacity_changed", Globals.new_map.fov_opacity)
 	if not Globals.lobby.check_is_server():  #client
 		darkness.color = Globals.new_map.darkness_color
-		if darkness.visible:
+		if darkness.visible and Globals.BG_ColorRect != null:
 			Globals.BG_ColorRect.color = Globals.new_map.darkness_color
 		return
 	else:
 		darkness.color = Globals.new_map.DM_darkness_color
-		if darkness.visible:
+		if darkness.visible and Globals.BG_ColorRect != null:
 			Globals.BG_ColorRect.color = Globals.new_map.DM_darkness_color
 	$ScrollContainer/VBoxContainer/BackgroundColor/BackgroundColorPickerButton.color = Globals.new_map.background_color
 	$ScrollContainer/VBoxContainer/CollapsibleContainer/Container/GridContainer/GridEnable.button_pressed = grid.visible
@@ -66,7 +67,7 @@ func set_map_setting_on_other_peers(property, value):
 	
 
 func _on_background_color_picker_button_color_changed(color):
-	if not Globals.new_map.darkness_enable:
+	if not Globals.new_map.darkness_enable and Globals.BG_ColorRect != null:
 		Globals.BG_ColorRect.color = color
 	Globals.new_map.background_color = color
 	set_map_setting_on_other_peers.rpc("background_color", color)
@@ -109,19 +110,20 @@ func _on_line_edit_text_submitted(new_text):
 func _on_darkness_enable_toggled(button_pressed):
 	Globals.new_map.darkness_enable = button_pressed
 	darkness.visible = button_pressed
-	if button_pressed: #set backgroud color to darkness
-		if Globals.lobby.check_is_server():
-			Globals.BG_ColorRect.color = Globals.new_map.DM_darkness_color
+	if Globals.BG_ColorRect != null:
+		if button_pressed: #set backgroud color to darkness
+			if Globals.lobby.check_is_server():
+				Globals.BG_ColorRect.color = Globals.new_map.DM_darkness_color
+			else:
+				Globals.BG_ColorRect.color = Globals.new_map.darkness_color
 		else:
-			Globals.BG_ColorRect.color = Globals.new_map.darkness_color
-	else:
-		Globals.BG_ColorRect.color = Globals.new_map.background_color
+			Globals.BG_ColorRect.color = Globals.new_map.background_color
 	set_map_setting_on_other_peers.rpc("darkness_enable", button_pressed)
 
 func _on_darkness_color_picker_button_color_changed(color):
 	if not Globals.lobby.check_is_server():
 		darkness.color = color
-		if Globals.new_map.darkness_enable: #backgroud color is darkness
+		if Globals.new_map.darkness_enable and Globals.BG_ColorRect != null:
 			Globals.BG_ColorRect.color = color
 	Globals.new_map.darkness_color = color
 	set_map_setting_on_other_peers.rpc("darkness_color", color)
@@ -129,7 +131,7 @@ func _on_darkness_color_picker_button_color_changed(color):
 func _on_dm_darkness_color_picker_button_color_changed(color):
 	if Globals.lobby.check_is_server():
 		darkness.color = color
-		if Globals.new_map.darkness_enable: #backgroud color is darkness
+		if Globals.new_map.darkness_enable and Globals.BG_ColorRect != null:
 			Globals.BG_ColorRect.color = color
 	Globals.new_map.DM_darkness_color = color
 	set_map_setting_on_other_peers.rpc("DM_darkness_color", color)
@@ -156,4 +158,3 @@ func _on_fov_color_picker_button_color_changed(color):
 	fov.color = color
 	Globals.new_map.fov_color = color
 	set_map_setting_on_other_peers.rpc("fov_color", color)
-

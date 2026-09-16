@@ -16,6 +16,8 @@ var _start_button: Button
 var _end_button: Button
 var _log_label: Label
 var _log_lines: Array = []
+var _path_input: LineEdit
+var _open_button: Button
 
 # ── Compendium tab nodes ─────────────────────────────────────────────────────
 var _type_filter: OptionButton
@@ -56,13 +58,20 @@ func _ready() -> void:
 	_start_button = conn.get_node("SessionRow/StartButton")
 	_end_button   = conn.get_node("SessionRow/EndButton")
 	_log_label    = conn.get_node("LogLabel")
+	_path_input   = conn.get_node("PathInput")
+	_open_button  = conn.get_node("OpenButton")
 
 	# Pre-fill from saved config
 	_url_input.text    = EventBridge._companion_url
 	_secret_input.text = EventBridge._bridge_secret
+	_path_input.text   = EventBridge._companion_path
 
 	# Connection tab button signals
 	_save_button.pressed.connect(_on_save_pressed)
+	_open_button.pressed.connect(_on_open_pressed)
+	EventBridge.launch_finished.connect(_set_open_busy.bind(false))
+	# A launch started before the panel was reopened may still be running.
+	_set_open_busy(EventBridge.is_launching())
 	_test_button.pressed.connect(_on_test_pressed)
 	_start_button.pressed.connect(_on_start_pressed)
 	_end_button.pressed.connect(_on_end_pressed)
@@ -121,7 +130,19 @@ func _ready() -> void:
 # ═══════════════════════════════════════════════════════════════════════════
 
 func _on_save_pressed() -> void:
-	EventBridge.save_config(_url_input.text, _secret_input.text)
+	EventBridge.save_config(_url_input.text, _secret_input.text, _path_input.text)
+
+
+func _on_open_pressed() -> void:
+	# Save first so the launcher uses what's on screen, not the last saved values.
+	EventBridge.save_config(_url_input.text, _secret_input.text, _path_input.text)
+	_set_open_busy(true)
+	EventBridge.open_companion()
+
+
+func _set_open_busy(busy: bool) -> void:
+	_open_button.disabled = busy
+	_open_button.text = "Opening…" if busy else "Open Companion"
 
 
 func _on_test_pressed() -> void:

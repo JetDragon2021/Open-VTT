@@ -39,6 +39,19 @@ secret = true
 placeholder_text = "dev-bridge-secret"
 size_flags_horizontal = 3
 
+[node name="PathLabel" type="Label" parent="VBoxContainer/TabContainer/Connection"]
+text = "Companion folder (to launch it locally)"
+
+[node name="PathInput" type="LineEdit" parent="VBoxContainer/TabContainer/Connection"]
+name = "PathInput"
+placeholder_text = "C:\\path\\to\\gm-companion"
+size_flags_horizontal = 3
+
+[node name="OpenButton" type="Button" parent="VBoxContainer/TabContainer/Connection"]
+name = "OpenButton"
+text = "Open Companion"
+tooltip_text = "Opens the companion in your browser, starting its dev server first if it isn't running (localhost only)."
+
 [node name="ButtonRow" type="HBoxContainer" parent="VBoxContainer/TabContainer/Connection"]
 
 [node name="SaveButton" type="Button" parent="VBoxContainer/TabContainer/Connection/ButtonRow"]

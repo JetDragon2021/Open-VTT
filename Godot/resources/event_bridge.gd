@@ -12,6 +12,7 @@ signal compendium_results_received(monsters: Array)
 signal monster_detail_received(monster: Dictionary)
 signal compendium_spawn_completed(entity_id: String, entity_name: String)
 signal compendium_spawn_failed(error: String)
+signal launch_finished
 
 # ── Connection status ───────────────────────────────────────────────────────
 enum Status { DISCONNECTED, CONNECTED, ERROR }
@@ -20,6 +21,11 @@ var _companion_url: String = ""
 var _bridge_secret: String = ""
 var _connection_status: Status = Status.DISCONNECTED
 var _status_message: String = "Not configured"
+
+# ── Companion launcher ──────────────────────────────────────────────────────
+# Folder of the gm-companion project, used to start its dev server locally.
+var _companion_path: String = ""
+var _launching: bool = false
 
 # ── Session state ───────────────────────────────────────────────────────────
 var _active_session_id: String = ""
@@ -82,19 +88,23 @@ func _connect_turn_order() -> void:
 # ═══════════════════════════════════════════════════════════════════════════
 
 func _load_config() -> void:
+	_companion_path = _guess_companion_path()
 	var cfg = ConfigFile.new()
 	if cfg.load(CONFIG_PATH) != OK:
 		return
 	_companion_url = cfg.get_value("bridge", "companion_url", "")
 	_bridge_secret = cfg.get_value("bridge", "bridge_secret", "")
+	_companion_path = cfg.get_value("bridge", "companion_path", _companion_path)
 
 
-func save_config(url: String, secret: String) -> void:
+func save_config(url: String, secret: String, companion_path: String) -> void:
 	_companion_url = url.strip_edges()
 	_bridge_secret = secret.strip_edges()
+	_companion_path = companion_path.strip_edges()
 	var cfg = ConfigFile.new()
 	cfg.set_value("bridge", "companion_url", _companion_url)
 	cfg.set_value("bridge", "bridge_secret", _bridge_secret)
+	cfg.set_value("bridge", "companion_path", _companion_path)
 	cfg.save(CONFIG_PATH)
 	_set_status(Status.DISCONNECTED, "Settings saved — click Test Connection")
 
@@ -412,6 +422,132 @@ func _on_test_completed(result: int, code: int, _headers: PackedStringArray, _bo
 		_set_status(Status.CONNECTED, "Connected")
 	else:
 		_set_status(Status.ERROR, "Unexpected response: %d" % code)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Companion launcher — open the web app, starting the local dev server if needed
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Opening the browser before the dev server is up shows "can't reach this
+# page", and `next dev` takes several seconds to answer after it starts. So:
+# probe first, launch only when nothing answers, and open the browser once the
+# server responds.
+
+const LAUNCH_TIMEOUT_SEC = 90.0
+const LAUNCH_POLL_SEC = 2.0
+
+
+func open_companion() -> void:
+	if _launching:
+		return
+	if _companion_url.is_empty():
+		_set_status(Status.ERROR, "Enter the companion URL first")
+		return
+
+	_launching = true
+	if await _companion_responds():
+		OS.shell_open(_companion_url)
+		_finish_launch()
+		_after_open()
+		return
+
+	if not _is_local_url(_companion_url):
+		_finish_launch()
+		_set_status(Status.ERROR, "Companion unreachable at %s" % _companion_url)
+		return
+
+	var launch_error := _start_dev_server()
+	if not launch_error.is_empty():
+		_finish_launch()
+		_set_status(Status.ERROR, launch_error)
+		return
+
+	var started := Time.get_ticks_msec()
+	while true:
+		var elapsed := (Time.get_ticks_msec() - started) / 1000.0
+		if elapsed > LAUNCH_TIMEOUT_SEC:
+			_finish_launch()
+			_set_status(Status.ERROR, "Companion didn't start within %ds — check its console window" % int(LAUNCH_TIMEOUT_SEC))
+			return
+		_set_status(Status.DISCONNECTED, "Starting companion… %ds" % int(elapsed))
+		await get_tree().create_timer(LAUNCH_POLL_SEC).timeout
+		if await _companion_responds():
+			break
+
+	OS.shell_open(_companion_url)
+	_finish_launch()
+	_after_open()
+
+
+func is_launching() -> bool:
+	return _launching
+
+
+func _finish_launch() -> void:
+	_launching = false
+	emit_signal("launch_finished")
+
+
+# Any HTTP response at all means the server is up. /api/auth/session needs no
+# auth and is excluded from the companion's login redirect.
+func _companion_responds() -> bool:
+	var hr := HTTPRequest.new()
+	hr.timeout = 15.0  # the first request to `next dev` compiles the route
+	add_child(hr)
+	var err := hr.request(_companion_url.trim_suffix("/") + "/api/auth/session")
+	if err != OK:
+		hr.queue_free()
+		return false
+	var response: Array = await hr.request_completed
+	hr.queue_free()
+	return response[0] == HTTPRequest.RESULT_SUCCESS
+
+
+func _after_open() -> void:
+	if _bridge_secret.is_empty():
+		_set_status(Status.DISCONNECTED, "Companion opened — enter the bridge secret to connect")
+	else:
+		test_connection()
+
+
+func _is_local_url(url: String) -> bool:
+	var authority := url.get_slice("://", 1).get_slice("/", 0).to_lower()
+	# IPv6 hosts are bracketed and contain colons, so only split off a port otherwise.
+	var host := authority.get_slice("]", 0) + "]" if authority.begins_with("[") else authority.get_slice(":", 0)
+	return host in ["localhost", "127.0.0.1", "[::1]"]
+
+
+# Returns an error message, or "" once the server process has been spawned.
+func _start_dev_server() -> String:
+	if _companion_path.is_empty():
+		return "Set the companion folder to launch it from here"
+	if not FileAccess.file_exists(_companion_path.path_join("package.json")):
+		return "No package.json in companion folder: %s" % _companion_path
+
+	var pid := -1
+	if OS.get_name() == "Windows":
+		# `start` gives the server its own console window, so its logs stay
+		# visible and closing that window (or Ctrl+C) stops it. start-dev.bat
+		# also puts Node on PATH, which a Godot-launched process may lack.
+		# `start /D` needs backslashes: it reads "/Users" in C:/Users as a switch
+		# and silently launches nothing.
+		# `.\` because cmd skips the current folder when NoDefaultCurrentDirectoryInExePath is set.
+		var script := ".\\start-dev.bat" if FileAccess.file_exists(_companion_path.path_join("start-dev.bat")) else "npm run dev"
+		var win_path := _companion_path.replace("/", "\\")
+		pid = OS.create_process("cmd.exe", ["/c", "start", "GM Companion", "/D", win_path, "cmd", "/k", script])
+	else:
+		pid = OS.create_process("sh", ["-c", "cd \"$1\" && exec npm run dev", "sh", _companion_path])
+
+	if pid == -1:
+		return "Couldn't start the companion dev server"
+	return ""
+
+
+func _guess_companion_path() -> String:
+	# Default layout: gm-companion is a sibling of the Open-VTT repo, and this
+	# project lives in Open-VTT/Godot. Only meaningful when run from source.
+	var guess := ProjectSettings.globalize_path("res://").path_join("../../gm-companion").simplify_path()
+	return guess if FileAccess.file_exists(guess.path_join("package.json")) else ""
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -681,17 +681,6 @@ terrain_set_1/terrain_0/color = Color(0.388235, 0.537255, 0.309804, 1)
 sources/4 = SubResource("TileSetAtlasSource_4q0mx")
 sources/6 = SubResource("TileSetAtlasSource_1bqkn")
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_labels"]
-content_margin_left = 6.0
-content_margin_top = 4.0
-content_margin_right = 6.0
-content_margin_bottom = 4.0
-bg_color = Color(0.08, 0.08, 0.12, 0.88)
-corner_radius_top_left = 4
-corner_radius_top_right = 4
-corner_radius_bottom_right = 4
-corner_radius_bottom_left = 4
-
 [node name="Map" type="Node2D"]
 texture_repeat = 2
 script = ExtResource("99_mapgd")
@@ -865,79 +854,6 @@ offset_bottom = 1030.0001
 scale = Vector2(0.2516333, 0.10932255)
 icon = ExtResource("2_8c7ws")
 script = ExtResource("1_wslke")
-
-[node name="UILabels" type="Control" parent="CanvasLayer"]
-layout_mode = 3
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-mouse_filter = 2
-
-[node name="LayersPanelLabel" type="Label" parent="CanvasLayer/UILabels"]
-layout_mode = 0
-offset_left = 5.0
-offset_top = 290.0
-offset_right = 260.0
-offset_bottom = 362.0
-theme_override_colors/font_color = Color(1, 0.9, 0.3, 1)
-theme_override_font_sizes/font_size = 11
-theme_override_styles/normal = SubResource("StyleBoxFlat_labels")
-text = "▼ LAYERS PANEL
-Click a layer name here to select
-the active drawing layer.
-Required before dragging tokens."
-
-[node name="ToolPanelLabel" type="Label" parent="CanvasLayer/UILabels"]
-layout_mode = 0
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -295.0
-offset_top = 5.0
-offset_right = -5.0
-offset_bottom = 45.0
-theme_override_colors/font_color = Color(1, 0.9, 0.3, 1)
-theme_override_font_sizes/font_size = 11
-theme_override_styles/normal = SubResource("StyleBoxFlat_labels")
-text = "▼ TOOL PANEL  (Characters / Object / Map tabs)
-Guy is under:  Characters → Campaign"
-
-[node name="RollPanelLabel" type="Label" parent="CanvasLayer/UILabels"]
-layout_mode = 0
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -295.0
-offset_top = 476.0
-offset_right = -5.0
-offset_bottom = 496.0
-theme_override_colors/font_color = Color(1, 0.9, 0.3, 1)
-theme_override_font_sizes/font_size = 11
-theme_override_styles/normal = SubResource("StyleBoxFlat_labels")
-text = "▼ ROLL PANEL — dice rolling"
-
-[node name="BridgeLabel" type="Label" parent="CanvasLayer/UILabels"]
-layout_mode = 0
-offset_left = 5.0
-offset_top = 693.0
-offset_right = 220.0
-offset_bottom = 720.0
-theme_override_colors/font_color = Color(1, 0.9, 0.3, 1)
-theme_override_font_sizes/font_size = 11
-theme_override_styles/normal = SubResource("StyleBoxFlat_labels")
-text = "▼ BRIDGE BUTTON — GM Companion link"
-
-[node name="CanvasLabel" type="Label" parent="CanvasLayer/UILabels"]
-layout_mode = 0
-anchor_left = 0.3
-anchor_right = 0.7
-offset_top = 30.0
-offset_bottom = 60.0
-theme_override_colors/font_color = Color(0.5, 0.9, 1, 1)
-theme_override_font_sizes/font_size = 13
-theme_override_styles/normal = SubResource("StyleBoxFlat_labels")
-text = "MAP CANVAS — drag characters here from the Characters tab ►"
-horizontal_alignment = 1
 
 [connection signal="child_exiting_tree" from="." to="." method="_on_child_exiting_tree"]
 [connection signal="tree_exiting" from="." to="." method="_on_tree_exiting"]

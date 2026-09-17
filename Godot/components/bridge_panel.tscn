@@ -159,3 +159,44 @@ visible = false
 name = "CompendiumStatusLabel"
 text = ""
 autowrap_mode = 3
+
+[node name="Characters" type="VBoxContainer" parent="VBoxContainer/TabContainer"]
+
+[node name="CharactersHint" type="Label" parent="VBoxContainer/TabContainer/Characters"]
+text = "Player characters in the companion's active campaign."
+autowrap_mode = 3
+theme_override_colors/font_color = Color(0.6, 0.6, 0.6, 1)
+
+[node name="RefreshButton" type="Button" parent="VBoxContainer/TabContainer/Characters"]
+name = "RefreshButton"
+text = "Refresh"
+
+[node name="CharacterList" type="ItemList" parent="VBoxContainer/TabContainer/Characters"]
+name = "CharacterList"
+select_mode = 0
+size_flags_horizontal = 3
+size_flags_vertical = 3
+custom_minimum_size = Vector2(0, 140)
+
+[node name="SheetPreviewScroll" type="ScrollContainer" parent="VBoxContainer/TabContainer/Characters"]
+name = "SheetPreviewScroll"
+custom_minimum_size = Vector2(0, 160)
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="SheetPreviewLabel" type="Label" parent="VBoxContainer/TabContainer/Characters/SheetPreviewScroll"]
+name = "SheetPreviewLabel"
+text = ""
+autowrap_mode = 3
+size_flags_horizontal = 3
+
+[node name="SendButton" type="Button" parent="VBoxContainer/TabContainer/Characters"]
+name = "SendButton"
+text = "Send to VTT"
+disabled = true
+tooltip_text = "Creates the character on the VTT, or updates the one with the same name (after a level-up) without moving its tokens."
+
+[node name="CharactersStatusLabel" type="Label" parent="VBoxContainer/TabContainer/Characters"]
+name = "CharactersStatusLabel"
+text = ""
+autowrap_mode = 3

@@ -46,6 +46,19 @@ var _pending_tree_item: TreeItem = null
 # ── Search debounce ──────────────────────────────────────────────────────────
 var _search_timer: Timer
 
+# ── Characters tab nodes ─────────────────────────────────────────────────────
+var _refresh_button: Button
+var _character_list: ItemList
+var _sheet_preview_label: Label
+var _send_button: Button
+var _characters_status: Label
+
+# The companion sheet (lib/vtt-sheet.ts) of the selected character, once loaded.
+var _selected_sheet: Dictionary = {}
+# Attribute groups written from a companion sheet, as "[group] name" keys.
+# Only these are removed on resync — anything the GM added by hand stays.
+const SHEET_GROUP_PREFIXES = ["[Feature] ", "[Mastery] ", "[Cantrip] ", "[Spell ", "[Pending] "]
+
 
 func _ready() -> void:
 	# ── Connection tab ──────────────────────────────────────────────────────
@@ -121,6 +134,20 @@ func _ready() -> void:
 	EventBridge.compendium_spawn_completed.connect(_on_spawn_completed)
 	EventBridge.compendium_spawn_failed.connect(_on_spawn_failed)
 
+	# ── Characters tab ──────────────────────────────────────────────────────
+	var chars = $VBoxContainer/TabContainer/Characters
+	_refresh_button      = chars.get_node("RefreshButton")
+	_character_list      = chars.get_node("CharacterList")
+	_sheet_preview_label = chars.get_node("SheetPreviewScroll/SheetPreviewLabel")
+	_send_button         = chars.get_node("SendButton")
+	_characters_status   = chars.get_node("CharactersStatusLabel")
+	_refresh_button.pressed.connect(_refresh_characters)
+	_character_list.item_selected.connect(_on_character_selected)
+	_send_button.pressed.connect(_on_send_pressed)
+	EventBridge.characters_received.connect(_on_characters_received)
+	EventBridge.character_sheet_received.connect(_on_character_sheet_received)
+	EventBridge.characters_failed.connect(_on_characters_failed)
+
 	# Tab change guard
 	$VBoxContainer/TabContainer.tab_changed.connect(_on_tab_changed)
 
@@ -190,6 +217,8 @@ func append_event_log(line: String) -> void:
 func _on_tab_changed(tab: int) -> void:
 	if tab == 1:
 		_check_bridge_configured()
+	elif tab == 2:
+		_refresh_characters()
 
 
 func _check_bridge_configured() -> void:
@@ -598,3 +627,206 @@ func _on_spawn_failed(error: String) -> void:
 	_pending_character = null
 	_pending_tree_item = null
 	_compendium_status.text = "⚠ %s added to VTT only — companion save failed: %s" % [char_name, error]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Characters tab — send companion character sheets to the VTT
+# ═══════════════════════════════════════════════════════════════════════════
+
+func _refresh_characters() -> void:
+	if EventBridge._companion_url.is_empty() or EventBridge._bridge_secret.is_empty():
+		_characters_status.text = "Configure bridge connection first (Connection tab)."
+		return
+	_characters_status.text = "Loading characters…"
+	EventBridge.fetch_characters()
+
+
+func _on_characters_received(characters: Array) -> void:
+	_character_list.clear()
+	_selected_sheet = {}
+	_sheet_preview_label.text = ""
+	_send_button.disabled = true
+	if characters.is_empty():
+		_characters_status.text = "No characters in the active campaign yet."
+		return
+	_characters_status.text = ""
+	for c in characters:
+		var subclass = " (%s)" % c["subclass"] if c.get("subclass") != null else ""
+		var on_vtt = "  ✓ on VTT" if _find_vtt_character(str(c["name"])) != null else ""
+		var idx = _character_list.add_item("%s — %s %d%s, %s%s" % [c["name"], c["className"], int(c["level"]), subclass, c["species"], on_vtt])
+		_character_list.set_item_metadata(idx, c)
+
+
+func _on_character_selected(index: int) -> void:
+	var c = _character_list.get_item_metadata(index)
+	if c == null:
+		return
+	_selected_sheet = {}
+	_send_button.disabled = true
+	_sheet_preview_label.text = ""
+	_characters_status.text = "Loading sheet…"
+	EventBridge.fetch_character_sheet(str(c["id"]))
+
+
+func _on_character_sheet_received(sheet: Dictionary) -> void:
+	_selected_sheet = sheet
+	var a: Dictionary = sheet.get("attributes", {})
+	var lines: Array = [
+		"%s — %s" % [a.get("name", ""), a.get("class", "")],
+		"%s · %s" % [a.get("species", ""), a.get("background", "")],
+		"HP %s/%s · AC %s · Speed %s · Init %s · PB %s" % [a.get("hp", ""), a.get("max_hp", ""), a.get("ac", ""), a.get("speed", ""), a.get("initiative", ""), a.get("proficiency_bonus", "")],
+		"STR %s  DEX %s  CON %s  INT %s  WIS %s  CHA %s" % [a.get("str", ""), a.get("dex", ""), a.get("con", ""), a.get("int", ""), a.get("wis", ""), a.get("cha", "")],
+	]
+	if a.has("spell_save_dc"):
+		lines.append("Spell save DC %s · Spell attack %s" % [a["spell_save_dc"], a.get("spell_attack", "")])
+	var counts: Dictionary = {}
+	for ab in sheet.get("abilities", []):
+		counts[ab["group"]] = counts.get(ab["group"], 0) + 1
+	for group in counts:
+		lines.append("%d × %s" % [counts[group], group])
+	_sheet_preview_label.text = "\n".join(lines)
+	var existing = _find_vtt_character(str(sheet.get("name", "")))
+	_send_button.text = "Update on VTT" if existing != null else "Send to VTT"
+	_send_button.disabled = false
+	_characters_status.text = ""
+
+
+func _on_characters_failed(error: String) -> void:
+	_characters_status.text = "⚠ " + error
+
+
+func _on_send_pressed() -> void:
+	if _selected_sheet.is_empty():
+		return
+	if Globals.char_tree == null:
+		_characters_status.text = "Open a campaign map first before adding characters."
+		return
+	var char_name = str(_selected_sheet.get("name", ""))
+	var character = _find_vtt_character(char_name)
+	if character != null:
+		_update_vtt_character(character, _selected_sheet)
+		_characters_status.text = "✓ %s updated on the VTT." % char_name
+	else:
+		if _create_pc_character(_selected_sheet):
+			_characters_status.text = "✓ %s added to the VTT. HP changes on its tokens are logged to the companion." % char_name
+	_send_button.text = "Update on VTT"
+
+
+# The event bridge matches tokens to companion entities by the "name"
+# attribute, so that is what identifies a synced character.
+func _find_vtt_character(char_name: String) -> Object:
+	if Globals.char_tree == null or char_name.is_empty():
+		return null
+	var root = Globals.char_tree.get_root()
+	return _find_in_tree(root, char_name) if root != null else null
+
+
+func _find_in_tree(item: TreeItem, char_name: String) -> Object:
+	if item.has_meta("character"):
+		var character = item.get_meta("character")
+		if character != null and str(character.attributes.get("name", ["", ""])[1]) == char_name:
+			return character
+	var child = item.get_first_child()
+	while child != null:
+		var found = _find_in_tree(child, char_name)
+		if found != null:
+			return found
+		child = child.get_next()
+	return null
+
+
+func _create_pc_character(sheet: Dictionary) -> bool:
+	var root = Globals.char_tree.get_root()
+	var campaign_item: TreeItem = null
+	var child = root.get_first_child() if root != null else null
+	while child != null:
+		if child.get_text(0) == "Campaign":
+			campaign_item = child
+			break
+		child = child.get_next()
+	if campaign_item == null and root != null:
+		campaign_item = root.get_first_child()
+	if campaign_item == null:
+		_characters_status.text = "No character group found — load a campaign map first."
+		return false
+
+	var char_name = str(sheet.get("name", ""))
+	var tree_item = Globals.char_tree.add_new_item(char_name, campaign_item)
+	var character = tree_item.get_meta("character")
+	# Start clean rather than inheriting the parent folder's attributes.
+	character.attributes.clear()
+	character.player_character = true
+	_write_sheet(character, sheet)
+	character.token_size = _size_to_token_size(str(sheet.get("size", "Medium")))
+	character.bars = [{
+		"attr1":  "hp",
+		"attr2":  "max_hp",
+		"color":  Color(0.2, 0.7, 0.3, 1.0),
+		"size":   10.0,
+	}]
+	character.attr_bubbles = [
+		{"name": "ac",    "edit": false, "icon": "", "image": ""},
+		{"name": "speed", "edit": false, "icon": "", "image": ""},
+	]
+	character.save()
+	EventBridge.rebaseline_character(character)
+	return true
+
+
+# Resync after a level-up or rest: replaces what the companion owns and keeps
+# tokens, bars, images and anything the GM added by hand.
+func _update_vtt_character(character: Object, sheet: Dictionary) -> void:
+	var incoming = _sheet_attributes(sheet)
+
+	var removed: Array = []
+	for key in character.attributes.keys():
+		if incoming.has(key):
+			continue
+		for prefix in SHEET_GROUP_PREFIXES:
+			if str(key).begins_with(prefix):
+				removed.append(key)
+				break
+
+	var created: Array = []
+	var updated: Array = []
+	for key in incoming:
+		if not character.attributes.has(key):
+			created.append(key)
+		elif str(character.attributes[key][0]) != incoming[key]:
+			updated.append(key)
+		character.attributes[key] = [incoming[key], incoming[key]]
+	for key in removed:
+		character.attributes.erase(key)
+
+	character.token_size = _size_to_token_size(str(sheet.get("size", "Medium")))
+	character.save()
+
+	# Rebaseline before signalling: the bridge logs HP deltas from attr_updated,
+	# and taking the companion's HP must not be logged as damage or healing.
+	EventBridge.rebaseline_character(character)
+	for key in removed:
+		character.emit_signal("attr_removed", key)
+	for key in created:
+		if character.token != null:
+			character.token.on_attr_created(key, character.attributes[key])
+		character.emit_signal("attr_created", key, character.attributes[key])
+	for key in updated:
+		character.emit_signal("attr_updated", key, false)
+	character.emit_signal("bars_changed")
+	character.emit_signal("attr_bubbles_changed")
+
+
+func _write_sheet(character: Object, sheet: Dictionary) -> void:
+	var incoming = _sheet_attributes(sheet)
+	for key in incoming:
+		character.attributes[key] = [incoming[key], incoming[key]]
+
+
+func _sheet_attributes(sheet: Dictionary) -> Dictionary:
+	var result: Dictionary = {}
+	var attrs: Dictionary = sheet.get("attributes", {})
+	for key in attrs:
+		result[key] = str(attrs[key])
+	for ab in sheet.get("abilities", []):
+		result["[%s] %s" % [ab["group"], ab["name"]]] = str(ab["text"])
+	return result

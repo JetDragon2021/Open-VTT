@@ -13,6 +13,9 @@ signal monster_detail_received(monster: Dictionary)
 signal compendium_spawn_completed(entity_id: String, entity_name: String)
 signal compendium_spawn_failed(error: String)
 signal launch_finished
+signal characters_received(characters: Array)
+signal character_sheet_received(sheet: Dictionary)
+signal characters_failed(error: String)
 
 # ── Connection status ───────────────────────────────────────────────────────
 enum Status { DISCONNECTED, CONNECTED, ERROR }
@@ -45,6 +48,8 @@ var _http_lookup: HTTPRequest   # entity-lookup node (separate lifecycle)
 var _http_compendium: HTTPRequest  # compendium search node
 var _http_detail: HTTPRequest      # monster detail / stat block node
 var _http_spawn: HTTPRequest       # companion spawn node
+var _http_characters: HTTPRequest  # player character list
+var _http_sheet: HTTPRequest       # one character's VTT sheet
 
 const MAX_QUEUE = 50
 const CONFIG_PATH = "user://event_bridge.cfg"
@@ -70,6 +75,12 @@ func _ready() -> void:
 	_http_compendium.request_completed.connect(_on_compendium_search_completed)
 	_http_detail.request_completed.connect(_on_monster_detail_completed)
 	_http_spawn.request_completed.connect(_on_spawn_completed)
+	_http_characters = HTTPRequest.new()
+	_http_sheet = HTTPRequest.new()
+	add_child(_http_characters)
+	add_child(_http_sheet)
+	_http_characters.request_completed.connect(_on_characters_completed)
+	_http_sheet.request_completed.connect(_on_character_sheet_completed)
 
 	_load_config()
 	get_tree().node_added.connect(_on_node_added)
@@ -627,6 +638,64 @@ func _on_spawn_completed(_result: int, code: int, _headers: PackedStringArray, b
 	var data = json.get_data()
 	var entity = data.get("entity", {})
 	emit_signal("compendium_spawn_completed", entity.get("id", ""), entity.get("name", ""))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Player characters (sheets built in the companion)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Lists the active campaign's characters.
+func fetch_characters() -> void:
+	if _companion_url.is_empty() or _bridge_secret.is_empty():
+		emit_signal("characters_failed", "Bridge not configured")
+		return
+	if _http_characters.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		_http_characters.cancel_request()
+	var url = _companion_url.trim_suffix("/") + "/api/characters"
+	var headers = PackedStringArray(["Authorization: Bearer " + _bridge_secret])
+	_http_characters.request(url, headers, HTTPClient.METHOD_GET)
+
+
+func _on_characters_completed(_result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if code != 200:
+		emit_signal("characters_failed", "Couldn't load characters (%d)" % code)
+		return
+	var json = JSON.new()
+	if json.parse(body.get_string_from_utf8()) != OK:
+		emit_signal("characters_failed", "Invalid response from companion")
+		return
+	emit_signal("characters_received", json.get_data().get("characters", []))
+
+
+# Fetches a character's sheet already flattened for the VTT
+# (attributes + text blocks) — see lib/vtt-sheet.ts in the companion.
+func fetch_character_sheet(character_id: String) -> void:
+	if _companion_url.is_empty() or _bridge_secret.is_empty():
+		emit_signal("characters_failed", "Bridge not configured")
+		return
+	if _http_sheet.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		_http_sheet.cancel_request()
+	var url = _companion_url.trim_suffix("/") + "/api/characters/" + character_id + "/vtt"
+	var headers = PackedStringArray(["Authorization: Bearer " + _bridge_secret])
+	_http_sheet.request(url, headers, HTTPClient.METHOD_GET)
+
+
+func _on_character_sheet_completed(_result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if code != 200:
+		emit_signal("characters_failed", "Couldn't load the sheet (%d)" % code)
+		return
+	var json = JSON.new()
+	if json.parse(body.get_string_from_utf8()) != OK:
+		emit_signal("characters_failed", "Invalid response from companion")
+		return
+	emit_signal("character_sheet_received", json.get_data().get("sheet", {}))
+
+
+# Call after writing attributes from the companion, before emitting
+# attr_updated: resets the HP baseline so a sync isn't logged as damage/healing.
+func rebaseline_character(char: Object) -> void:
+	_prev_attrs.erase(char.get_instance_id())
+	_init_prev_attrs(char)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

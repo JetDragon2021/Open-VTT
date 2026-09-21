@@ -71,6 +71,11 @@ autowrap_mode = 3
 
 [node name="Separator2" type="HSeparator" parent="VBoxContainer/TabContainer/Connection"]
 
+[node name="SessionStatusLabel" type="Label" parent="VBoxContainer/TabContainer/Connection"]
+name = "SessionStatusLabel"
+text = "Session status unknown"
+autowrap_mode = 3
+
 [node name="SessionRow" type="HBoxContainer" parent="VBoxContainer/TabContainer/Connection"]
 
 [node name="StartButton" type="Button" parent="VBoxContainer/TabContainer/Connection/SessionRow"]

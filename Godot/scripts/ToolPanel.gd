@@ -69,8 +69,10 @@ func _on_confirmation_dialog_confirmed():
 	custom_remove_item(dialog_item)
 	
 func custom_remove_item(item: TreeItem):
+	if item.has_meta("character"):
+		EventBridge.report_character_deleted(item.get_meta("character"))
 	item.get_meta("character").delete()
-	
+
 	item.free()
 	
 	if tree.get_root().get_first_child() == null:

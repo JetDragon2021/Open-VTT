@@ -16,6 +16,7 @@ signal launch_finished
 signal characters_received(characters: Array)
 signal character_sheet_received(sheet: Dictionary)
 signal characters_failed(error: String)
+signal session_status_changed(active: bool, session_name: String)
 
 # ── Connection status ───────────────────────────────────────────────────────
 enum Status { DISCONNECTED, CONNECTED, ERROR }
@@ -50,6 +51,7 @@ var _http_detail: HTTPRequest      # monster detail / stat block node
 var _http_spawn: HTTPRequest       # companion spawn node
 var _http_characters: HTTPRequest  # player character list
 var _http_sheet: HTTPRequest       # one character's VTT sheet
+var _http_session_status: HTTPRequest  # active-session poll
 
 const MAX_QUEUE = 50
 const CONFIG_PATH = "user://event_bridge.cfg"
@@ -81,6 +83,9 @@ func _ready() -> void:
 	add_child(_http_sheet)
 	_http_characters.request_completed.connect(_on_characters_completed)
 	_http_sheet.request_completed.connect(_on_character_sheet_completed)
+	_http_session_status = HTTPRequest.new()
+	add_child(_http_session_status)
+	_http_session_status.request_completed.connect(_on_session_status_completed)
 
 	_load_config()
 	get_tree().node_added.connect(_on_node_added)
@@ -150,9 +155,14 @@ func _init_prev_attrs(char: Object) -> void:
 # ═══════════════════════════════════════════════════════════════════════════
 
 func _on_attr_updated(attr: StringName, remote: bool, char: Object) -> void:
-	# Only act on local changes — remote=true means peer replication
-	if remote:
-		return
+	# remote=true means this change was replicated in from another connected
+	# peer rather than made on this client. The bridge used to skip those to
+	# avoid double-counting — but only the GM's install has bridge credentials
+	# configured, so this client is the only one that will ever try to forward
+	# a given change; a locally-made edit only ever fires once as remote=false,
+	# and a peer-made edit only ever arrives once as remote=true. Tracking both
+	# means damage/healing applied on ANY connected player's screen (not just
+	# the GM's) reaches the companion.
 
 	# Only track attributes that back a visible HP bar (bar.attr1)
 	var is_hp_attr = false
@@ -192,6 +202,27 @@ func _get_char_name(char: Object) -> String:
 # ═══════════════════════════════════════════════════════════════════════════
 # Turn order advance (US2)
 # ═══════════════════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Deletion = death
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Removing a character from the tree is the only delete path in Open-VTT, and
+# the GM does it when a creature is gone from play — so the companion records
+# it as a death. Call this BEFORE the character is freed: only the name is
+# read, but it has to still be readable.
+func report_character_deleted(char: Object) -> void:
+	if char == null:
+		return
+	var char_name := _get_char_name(char)
+	if char_name.is_empty():
+		return
+	_enqueue_after_lookup(char_name, "died", -1)
+	# Drop the cached id only after enqueuing, so this event can still use it.
+	# A later character reusing the name must re-resolve rather than inherit it.
+	_prev_attrs.erase(char.get_instance_id())
+	_entity_cache.erase(char_name)
+
 
 func _on_turn_selected(token) -> void:
 	if token == null or token.character == null:
@@ -374,11 +405,14 @@ func _on_session_start_completed(result: int, code: int, _headers: PackedStringA
 		return
 	var data = json.get_data()
 	if code == 201:
-		_active_session_id = data.get("session", {}).get("id", "")
+		var session: Dictionary = data.get("session", {})
+		_active_session_id = session.get("id", "")
 		print("[EventBridge] Session started: ", _active_session_id)
+		emit_signal("session_status_changed", true, str(session.get("name", "")))
 	elif code == 409:
 		_active_session_id = data.get("activeSessionId", "")
 		print("[EventBridge] Adopted existing session: ", _active_session_id)
+		refresh_session_status()  # 409 doesn't carry the session's name
 
 
 func end_session() -> void:
@@ -402,8 +436,41 @@ func _on_session_end_completed(result: int, code: int, _headers: PackedStringArr
 	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
 		print("[EventBridge] Session ended: ", _active_session_id)
 		_active_session_id = ""
+		emit_signal("session_status_changed", false, "")
 	else:
 		print("[EventBridge] end_session failed — result %d code %d" % [result, code])
+
+
+# Polls the companion for whether a session is currently active, and emits
+# session_status_changed with the result. Safe to call any time the bridge is
+# configured — e.g. when the panel opens, so a session started or ended in an
+# earlier run of the game (or from another client) is reflected immediately.
+func refresh_session_status() -> void:
+	if _companion_url.is_empty() or _bridge_secret.is_empty():
+		return
+	if _http_session_status.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
+		return
+	var url = _companion_url.trim_suffix("/") + "/api/sessions?active=true"
+	var headers = PackedStringArray(["Authorization: Bearer " + _bridge_secret])
+	_http_session_status.request(url, headers, HTTPClient.METHOD_GET)
+
+
+func _on_session_status_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
+	if result != HTTPRequest.RESULT_SUCCESS or code != 200:
+		return
+	var json = JSON.new()
+	if json.parse(body.get_string_from_utf8()) != OK:
+		return
+	var data = json.get_data()
+	if typeof(data) != TYPE_DICTIONARY:
+		return
+	var session = data.get("session")
+	if typeof(session) == TYPE_DICTIONARY:
+		_active_session_id = str(session.get("id", ""))
+		emit_signal("session_status_changed", true, str(session.get("name", "")))
+	else:
+		_active_session_id = ""
+		emit_signal("session_status_changed", false, "")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -431,6 +498,7 @@ func _on_test_completed(result: int, code: int, _headers: PackedStringArray, _bo
 		_set_status(Status.ERROR, "Invalid secret — check bridge settings")
 	elif code == 200:
 		_set_status(Status.CONNECTED, "Connected")
+		refresh_session_status()
 	else:
 		_set_status(Status.ERROR, "Unexpected response: %d" % code)
 

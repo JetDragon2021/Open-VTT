@@ -14,6 +14,7 @@ var _test_button: Button
 var _status_label: Label
 var _start_button: Button
 var _end_button: Button
+var _session_status_label: Label
 var _log_label: Label
 var _log_lines: Array = []
 var _path_input: LineEdit
@@ -70,6 +71,7 @@ func _ready() -> void:
 	_status_label = conn.get_node("StatusLabel")
 	_start_button = conn.get_node("SessionRow/StartButton")
 	_end_button   = conn.get_node("SessionRow/EndButton")
+	_session_status_label = conn.get_node("SessionStatusLabel")
 	_log_label    = conn.get_node("LogLabel")
 	_path_input   = conn.get_node("PathInput")
 	_open_button  = conn.get_node("OpenButton")
@@ -92,6 +94,10 @@ func _ready() -> void:
 	# Bridge status changes
 	EventBridge.status_changed.connect(update_status)
 	update_status(EventBridge.get_status_text())
+
+	# Session status
+	EventBridge.session_status_changed.connect(_on_session_status_changed)
+	EventBridge.refresh_session_status()
 
 	# ── Compendium tab ──────────────────────────────────────────────────────
 	var comp = $VBoxContainer/TabContainer/Compendium
@@ -187,6 +193,17 @@ func _on_start_pressed() -> void:
 
 func _on_end_pressed() -> void:
 	EventBridge.end_session()
+
+
+func _on_session_status_changed(active: bool, session_name: String) -> void:
+	if _session_status_label == null:
+		return
+	if active:
+		_session_status_label.text = "● Session active: %s" % session_name
+		_session_status_label.modulate = Color(0.2, 0.9, 0.3)
+	else:
+		_session_status_label.text = "○ No session running"
+		_session_status_label.modulate = Color(0.7, 0.7, 0.7)
 
 
 func update_status(status_text: String) -> void:

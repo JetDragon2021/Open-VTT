@@ -668,9 +668,11 @@ func _on_characters_received(characters: Array) -> void:
 		return
 	_characters_status.text = ""
 	for c in characters:
-		var subclass = " (%s)" % c["subclass"] if c.get("subclass") != null else ""
+		# classLabel names every class ("Fighter 3 (Champion) / Wizard 1"); an
+		# older companion only sends className, so fall back to it.
+		var classes = str(c.get("classLabel", c["className"]))
 		var on_vtt = "  ✓ on VTT" if _find_vtt_character(str(c["name"])) != null else ""
-		var idx = _character_list.add_item("%s — %s %d%s, %s%s" % [c["name"], c["className"], int(c["level"]), subclass, c["species"], on_vtt])
+		var idx = _character_list.add_item("%s — Level %d %s, %s%s" % [c["name"], int(c["level"]), classes, c["species"], on_vtt])
 		_character_list.set_item_metadata(idx, c)
 
 

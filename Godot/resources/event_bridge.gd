@@ -922,6 +922,16 @@ func log_note(entity_id: String, text: String, on_done: Callable) -> void:
 	}, on_done)
 
 
+# Opens a quest ("quest") or plot thread ("thread") on the companion, with what
+# it's about and any starting steps. It shows up on the companion's quest board,
+# where its steps are ticked off. Answers 201 with { quest } on success.
+func open_quest(type: String, quest_name: String, text: String, steps: Array, on_done: Callable) -> void:
+	var body := { "type": type, "name": quest_name, "steps": steps }
+	if not text.is_empty():
+		body["text"] = text
+	_call_companion(HTTPClient.METHOD_POST, "/api/quests", body, on_done)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Boss phases
 # ═══════════════════════════════════════════════════════════════════════════

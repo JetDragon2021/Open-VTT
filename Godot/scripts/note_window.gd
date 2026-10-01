@@ -4,11 +4,20 @@
 
 extends Window
 
-const TYPE_ORDER = ["pc", "npc", "monster", "location", "faction", "item", "thread"]
+const TYPE_ORDER = ["pc", "npc", "monster", "location", "faction", "item", "quest", "thread"]
 const TYPE_LABEL = {
 	"pc": "PC", "npc": "NPC", "monster": "monster", "location": "location",
-	"faction": "faction", "item": "item", "thread": "thread",
+	"faction": "faction", "item": "item", "quest": "quest", "thread": "plot thread",
 }
+# What the window logs: a note, or a new quest / plot thread for the
+# companion's quest board. [label, mode, quest name placeholder]
+const MODES = [
+	["Note", "note", ""],
+	["Open new quest", "quest", "Quest name — \"Find the mayor's daughter\""],
+	["Open new plot thread", "thread", "Plot thread — \"Who is paying the bandits?\""],
+]
+const NOTE_PLACEHOLDER = "What happened? A promise, a discovery, a decision…"
+const QUEST_PLACEHOLDER = "What's it about? Who asked, what's at stake… (optional)"
 # What a note can create on the spot — the kinds with no other screen yet.
 const NEW_TYPES = [["NPC", "npc"], ["Location", "location"], ["Faction", "faction"]]
 
@@ -18,6 +27,11 @@ const COLOR_ERROR = Color(0.9, 0.3, 0.2)
 const COLOR_MUTED = Color(0.7, 0.7, 0.7)
 
 var _session_label: Label
+var _mode_picker: OptionButton
+var _quest_name: LineEdit
+var _steps_input: TextEdit
+var _about_row: Control
+var _new_row: Control
 var _picker: OptionButton
 var _new_name: LineEdit
 var _new_type: OptionButton
@@ -38,6 +52,11 @@ var _placed: bool = false
 func _ready() -> void:
 	var root = $VBoxContainer
 	_session_label = root.get_node("SessionLabel")
+	_mode_picker   = root.get_node("ModeRow/ModePicker")
+	_quest_name    = root.get_node("QuestName")
+	_steps_input   = root.get_node("StepsInput")
+	_about_row     = root.get_node("AboutRow")
+	_new_row       = root.get_node("NewRow")
 	_picker        = root.get_node("AboutRow/EntityPicker")
 	_new_name      = root.get_node("NewRow/NewName")
 	_new_type      = root.get_node("NewRow/NewType")
@@ -47,6 +66,13 @@ func _ready() -> void:
 	_close_button  = root.get_node("ButtonRow/CloseButton")
 	_log_button    = root.get_node("ButtonRow/LogButton")
 	_log_close_button = root.get_node("ButtonRow/LogCloseButton")
+
+	for m in MODES:
+		_mode_picker.add_item(m[0])
+		_mode_picker.set_item_metadata(_mode_picker.item_count - 1, m[1])
+	_mode_picker.item_selected.connect(func(_i: int) -> void: _apply_mode())
+	_quest_name.text_submitted.connect(func(_text: String) -> void: _log(false))
+	_apply_mode()
 
 	for t in NEW_TYPES:
 		_new_type.add_item(t[0])
@@ -199,10 +225,39 @@ func _on_entity_created(code: int, data: Dictionary) -> void:
 	_note_input.grab_focus()
 
 
+# ── Mode ────────────────────────────────────────────────────────────────────
+
+func _mode() -> String:
+	return str(_mode_picker.get_item_metadata(_mode_picker.selected))
+
+
+# A note is about someone, so it needs the picker; a quest or plot thread is a
+# thing of its own, so it needs a name and can take starting steps instead.
+func _apply_mode() -> void:
+	var mode := _mode()
+	var is_note := mode == "note"
+	_about_row.visible = is_note
+	_new_row.visible = is_note
+	_quest_name.visible = not is_note
+	_steps_input.visible = not is_note
+	_note_input.placeholder_text = NOTE_PLACEHOLDER if is_note else QUEST_PLACEHOLDER
+	for m in MODES:
+		if m[1] == mode and not is_note:
+			_quest_name.placeholder_text = m[2]
+	_log_button.text = "Log note" if is_note else "Open"
+	_log_close_button.text = "Log & close" if is_note else "Open & close"
+	_set_status("", COLOR_MUTED)
+	if not is_note:
+		_quest_name.grab_focus()
+
+
 # ── Logging ─────────────────────────────────────────────────────────────────
 
 func _log(close_after: bool) -> void:
 	if _busy:
+		return
+	if _mode() != "note":
+		_open_quest(close_after)
 		return
 	var id := _current_id()
 	var text := _note_input.text.strip_edges()
@@ -230,11 +285,54 @@ func _on_logged(code: int, data: Dictionary, close_after: bool) -> void:
 		_note_input.grab_focus()
 
 
+func _open_quest(close_after: bool) -> void:
+	var quest_name := _quest_name.text.strip_edges()
+	if quest_name.is_empty():
+		_set_status("Give it a name first.", COLOR_WARN)
+		_quest_name.grab_focus()
+		return
+	var steps: Array = []
+	for line in _steps_input.text.split("
+"):
+		var step: String = line.strip_edges().trim_prefix("- ").trim_prefix("• ").strip_edges()
+		if not step.is_empty():
+			steps.append(step)
+	_set_busy(true)
+	EventBridge.open_quest(_mode(), quest_name, _note_input.text.strip_edges(), steps, _on_quest_opened.bind(close_after))
+
+
+func _on_quest_opened(code: int, data: Dictionary, close_after: bool) -> void:
+	_set_busy(false)
+	if code != 201:
+		# Everything typed stays put, so a dropped connection costs nothing.
+		_set_status(str(data.get("error", "Couldn't open it")), COLOR_ERROR)
+		return
+	var quest: Dictionary = data.get("quest", {})
+	_quest_name.clear()
+	_steps_input.clear()
+	_note_input.clear()
+	# Back to notes, about the new quest — the next note is usually about it.
+	_selected_id = str(quest.get("id", ""))
+	_mode_picker.select(0)
+	_apply_mode()
+	_set_status("✓ Opened %s — tick its steps on the companion's quest board." % quest.get("name", ""), COLOR_OK)
+	EventBridge.fetch_entities(func(c: int, d: Dictionary) -> void:
+		if c == 200:
+			_populate(d.get("entities", [])))
+	if close_after:
+		hide()
+	else:
+		_note_input.grab_focus()
+
+
 func _set_busy(busy: bool) -> void:
 	_busy = busy
 	for b in [_log_button, _log_close_button, _add_button]:
 		b.disabled = busy
-	_log_button.text = "Logging…" if busy else "Log note"
+	if busy:
+		_log_button.text = "Working…"
+	else:
+		_log_button.text = "Log note" if _mode() == "note" else "Open"
 
 
 func _set_status(text: String, color: Color) -> void:

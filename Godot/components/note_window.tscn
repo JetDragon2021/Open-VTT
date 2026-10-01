@@ -4,7 +4,7 @@
 
 [node name="NoteWindow" type="Window"]
 title = "Quick Note"
-size = Vector2i(440, 400)
+size = Vector2i(440, 460)
 visible = false
 script = ExtResource("1_note")
 
@@ -21,6 +21,21 @@ offset_bottom = -12.0
 name = "SessionLabel"
 text = ""
 autowrap_mode = 3
+
+[node name="ModeRow" type="HBoxContainer" parent="VBoxContainer"]
+
+[node name="ModeLabel" type="Label" parent="VBoxContainer/ModeRow"]
+text = "Log"
+
+[node name="ModePicker" type="OptionButton" parent="VBoxContainer/ModeRow"]
+name = "ModePicker"
+size_flags_horizontal = 3
+tooltip_text = "A note about someone, or open a new quest or plot thread for the companion's quest board."
+
+[node name="QuestName" type="LineEdit" parent="VBoxContainer"]
+name = "QuestName"
+visible = false
+placeholder_text = "Quest name"
 
 [node name="AboutRow" type="HBoxContainer" parent="VBoxContainer"]
 
@@ -52,6 +67,13 @@ placeholder_text = "What happened? A promise, a discovery, a decision…"
 wrap_mode = 1
 size_flags_vertical = 3
 custom_minimum_size = Vector2(0, 110)
+
+[node name="StepsInput" type="TextEdit" parent="VBoxContainer"]
+name = "StepsInput"
+visible = false
+placeholder_text = "Steps, one per line (optional)"
+wrap_mode = 1
+custom_minimum_size = Vector2(0, 70)
 
 [node name="StatusLabel" type="Label" parent="VBoxContainer"]
 name = "StatusLabel"

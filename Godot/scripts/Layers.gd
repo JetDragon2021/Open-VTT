@@ -21,6 +21,18 @@ var lightlist_item
 # Called when the node enters the scene tree for the first time.
 func _ready():
 	Globals.layers = self
+
+# The bottom-most top-level layer — where a map image goes, under everything
+# else. A map with no layers gets one called "Map", since every drawing tool
+# needs a layer to draw on.
+func bottom_layer() -> Node2D:
+	var last: TreeItem = null
+	for child in tree.get_root().get_children():
+		last = child
+	if last == null:
+		last = tree.add_new_item("Map")
+		tree.set_selected(last, 0)
+	return last.get_meta("draw_layer")
 	
 #rename
 func _on_tree_item_activated():

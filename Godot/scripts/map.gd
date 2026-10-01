@@ -82,6 +82,10 @@ func _ready():
 		#print("new map")
 	#changing map to new_map - after map was saved
 	Globals.map = Globals.new_map
+	# A new map has no layers, and nothing can be drawn, measured or placed
+	# without one — every tool silently did nothing. Start it with one.
+	if tree.get_root().get_first_child() == null and Globals.lobby.check_is_server():
+		Globals.layers.bottom_layer()
 	if tree.get_root().get_first_child() != null:
 		tree.set_selected(tree.get_root().get_first_child(), 0)
 	else:

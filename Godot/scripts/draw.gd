@@ -97,6 +97,9 @@ func _ready():
 	
 	connect("line_settings_changed", on_line_settings_changed)
 	connect("font_settings_changed", on_font_settings_changed)
+
+	# Sizes in feet next to a shape being drawn, and above whatever is selected.
+	add_child(preload("res://scripts/measure_overlay.gd").new())
 	
 #handles all user input that wasn't handled by buttons, textedits etc.
 func _unhandled_input(event):
@@ -132,7 +135,8 @@ func _unhandled_input(event):
 	#		print(event.position)
 
 #			print(mouse_pos)
-			mouse_pos = round(mouse_pos/(70/Globals.snappingFraction))*(70/Globals.snappingFraction) #snap to grid
+			var snap_step = MapMeasure.grid_px() / Globals.snappingFraction
+			mouse_pos = round(mouse_pos / snap_step) * snap_step #snap to the map's grid
 #			print(mouse_pos)
 		#skip if position not changed
 	#	if last_event_pos == event.position:
@@ -548,8 +552,10 @@ func _unhandled_input(event):
 						if pressed:
 							current_line = Line2D.new()
 							current_line.material = unshaded_material #ignore lighting
-							current_line.default_color = Globals.colorLines
-							current_line.width = min(Globals.lineWidth,3) / Globals.camera.zoom.x
+							current_line.default_color = MapMeasure.RULER_COLOR
+							current_line.width = 4.0 / Globals.camera.zoom.x
+							current_line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+							current_line.end_cap_mode = Line2D.LINE_CAP_ROUND
 							Globals.draw_layer.add_child(current_line)
 							current_line.set_owner(layers_root)
 							current_measure.append(current_line)
@@ -558,13 +564,7 @@ func _unhandled_input(event):
 							current_rect = ColorRect.new()
 							current_rect.mouse_filter = Control.MOUSE_FILTER_PASS
 							current_rect.set_size(Vector2(0,0))
-							current_label = Label.new()
-							current_label.material = unshaded_material #ignore lighting
-							current_label.mouse_filter = Control.MOUSE_FILTER_PASS
-							current_label.add_theme_font_size_override("font_size", Globals.fontSize / Globals.camera.zoom.x)
-							current_label.add_theme_color_override("font_color", Globals.fontColor)
-							current_label.add_theme_color_override("font_outline_color", Globals.fontColor.inverted())
-							current_label.add_theme_constant_override("outline_size", 5)
+							current_label = MapMeasure.make_label(unshaded_material)
 							current_line.add_child(current_rect)
 							current_rect.set_owner(layers_root)
 							current_rect.add_child(current_label)
@@ -573,10 +573,9 @@ func _unhandled_input(event):
 					#moved - modify objects
 					if event is InputEventMouseMotion && pressed and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 						current_line.set_point_position(1, mouse_pos)
-						current_label.text = str(snapped(current_line.get_point_position(0).distance_to(current_line.get_point_position(1))/Globals.map.grid_size, 0.01) * Globals.map.unit_size) + " " + Globals.map.unit
-						current_rect.set_position(mouse_pos)
-						current_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_KEEP_SIZE)
-						print(current_label.anchors_preset)
+						current_label.text = MapMeasure.ruler_text(current_line.get_point_position(0), current_line.get_point_position(1))
+						# Just past the cursor, so the hand doesn't cover the number.
+						current_rect.set_position(mouse_pos + Vector2(16, 16) / Globals.camera.zoom.x)
 						
 				if Globals.measureTool == 2: #measure circle
 					if event is InputEventMouseButton and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
@@ -596,13 +595,7 @@ func _unhandled_input(event):
 							current_rect = ColorRect.new()
 							current_rect.mouse_filter = Control.MOUSE_FILTER_PASS
 							current_rect.set_size(Vector2(0,0))
-							current_label = Label.new()
-							current_label.material = unshaded_material #ignore lighting
-							current_label.mouse_filter = Control.MOUSE_FILTER_PASS
-							current_label.add_theme_font_size_override("font_size", Globals.fontSize / Globals.camera.zoom.x)
-							current_label.add_theme_color_override("font_color", Globals.fontColor)
-							current_label.add_theme_color_override("font_outline_color", Globals.fontColor.inverted())
-							current_label.add_theme_constant_override("outline_size", 5)
+							current_label = MapMeasure.make_label(unshaded_material)
 							Globals.draw_layer.add_child(current_rect)
 							current_rect.set_owner(layers_root)
 							current_measure.append(current_rect)
@@ -611,12 +604,8 @@ func _unhandled_input(event):
 					#moved - modify objects
 					if event is InputEventMouseMotion && pressed and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 						current_circle.radius = begin.distance_to(mouse_pos)
-						current_label.text = str(snapped(begin.distance_to(mouse_pos)/Globals.map.grid_size, 0.01) * Globals.map.unit_size) + " " + Globals.map.unit
-						current_rect.set_position(mouse_pos)
-						current_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_KEEP_SIZE)
-						print("z index: ", current_label.z_index)
-						print(current_circle.center, begin)
-						print(current_circle.radius, current_circle.size, current_circle.position, mouse_pos)
+						current_label.text = "radius " + MapMeasure.length_text(begin.distance_to(mouse_pos))
+						current_rect.set_position(mouse_pos + Vector2(16, 16) / Globals.camera.zoom.x)
 						
 				if Globals.measureTool == 3: #measure angle
 					if event is InputEventMouseButton and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
@@ -637,13 +626,7 @@ func _unhandled_input(event):
 							current_rect = ColorRect.new()
 							current_rect.mouse_filter = Control.MOUSE_FILTER_PASS
 							current_rect.set_size(Vector2(0,0))
-							current_label = Label.new()
-							current_label.material = unshaded_material #ignore lighting
-							current_label.mouse_filter = Control.MOUSE_FILTER_PASS
-							current_label.add_theme_font_size_override("font_size", Globals.fontSize / Globals.camera.zoom.x)
-							current_label.add_theme_color_override("font_color", Globals.fontColor)
-							current_label.add_theme_color_override("font_outline_color", Globals.fontColor.inverted())
-							current_label.add_theme_constant_override("outline_size", 5)
+							current_label = MapMeasure.make_label(unshaded_material)
 							Globals.draw_layer.add_child(current_rect)
 							current_rect.set_owner(layers_root)
 							current_measure.append(current_rect)
@@ -654,9 +637,8 @@ func _unhandled_input(event):
 						current_arc.angle_direction = (mouse_pos - begin).angle()
 						print(begin.angle_to(mouse_pos))
 						current_arc.radius = begin.distance_to(mouse_pos)
-						current_label.text = str(snapped(begin.distance_to(mouse_pos)/Globals.map.grid_size, 0.01) * Globals.map.unit_size) + " " + Globals.map.unit
-						current_rect.set_position(mouse_pos)
-						current_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_KEEP_SIZE)
+						current_label.text = "%s° cone, %s" % [Globals.measureAngle, MapMeasure.length_text(begin.distance_to(mouse_pos))]
+						current_rect.set_position(mouse_pos + Vector2(16, 16) / Globals.camera.zoom.x)
 						print(current_arc.center, begin)
 						print(current_arc.radius, " ", current_arc.angle_size, " ", current_arc.angle_direction, mouse_pos)
 					
@@ -1580,46 +1562,70 @@ func _rotate_handle_mouse_exited():
 func on_files_dropped(files):
 	if Globals.draw_layer == null:
 		return
-	print(files)
 	for file in files:
-		var panel = Panel.new()
-		var file_path = await Globals.lobby.handle_file_transfer(file)
-		var file_name = file_path.get_file()
-		print("dropped file name on server: ", file_name)
-		var tex: Texture2D
-		var tex_size
-		if FileAccess.file_exists(file_path):
-			print("file already exists")
-			#file exists - load and assign:
-			tex = Globals.load_texture(file_path)
-			if tex == null:
-				print("import failed")
-				return
-			else:
-				print("import done")
-				tex_size = tex.get_size()
+		await add_image(file, get_global_mouse_position(), Globals.draw_layer)
+
+
+# A map image from the toolbar's Map image button: in the middle of the view,
+# behind everything else on the bottom layer, and `squares_wide` grid squares
+# across (0 = the image's own size). Its corner sits on a grid line, so a map
+# that's the right number of squares wide lines up with the grid square for square.
+func add_map_image(file: String, squares_wide: int) -> void:
+	var layer = Globals.layers.bottom_layer()
+	var grid = MapMeasure.grid_px()
+	var image_size = Globals.load_texture(file).get_size()
+	if squares_wide > 0:
+		image_size *= squares_wide * grid / image_size.x
+	var centre = Globals.camera.get_screen_center_position() if Globals.camera != null else Vector2.ZERO
+	var corner = ((centre - image_size / 2) / grid).round() * grid
+	await add_image(file, corner, layer, image_size.x if squares_wide > 0 else 0.0, true)
+
+
+# Puts an image on `layer` as a textured panel at `begin`, copied into the
+# campaign's images (and sent to players) by the lobby. `width_px` > 0 scales it
+# to that width, keeping its shape; `to_back` puts it under the layer's other objects.
+func add_image(file: String, begin: Vector2, layer: Node, width_px := 0.0, to_back := false) -> Panel:
+	var panel = Panel.new()
+	var file_path = await Globals.lobby.handle_file_transfer(file)
+	var file_name = file_path.get_file()
+	print("dropped file name on server: ", file_name)
+	var tex: Texture2D
+	var tex_size
+	if FileAccess.file_exists(file_path):
+		print("file already exists")
+		#file exists - load and assign:
+		tex = Globals.load_texture(file_path)
+		if tex == null:
+			print("import failed")
+			return null
 		else:
-			print("files dropped - file does not exist")
-			Globals.lobby.add_to_objects_waiting_for_file(file_path, panel)
-			Globals.lobby.tcp_client.send_file_request(file_name)
-		if tex == null: #texture not yet loaded - get size from file
-			var tex_file = Globals.load_texture(file)
-			tex_size = tex_file.get_size()
-			tex = Texture2D.new()
-		tex.set_meta("image_path", file_path)
-		panel.mouse_filter = Control.MOUSE_FILTER_PASS
-		var begin = get_global_mouse_position()
-		panel.set_begin(begin)
-		panel.set_end(begin + tex_size)
-		var style = StyleBoxTexture.new()
-		style.texture = tex
-		print("texture size: ",tex_size)
-		panel.add_theme_stylebox_override("panel", style)
-		panel.set_meta("type", "rect")
-		Globals.draw_layer.add_child(panel)
-		panel.set_owner(layers_root)
-		create_object_on_remote_peers(panel, true)
-		
+			print("import done")
+			tex_size = tex.get_size()
+	else:
+		print("files dropped - file does not exist")
+		Globals.lobby.add_to_objects_waiting_for_file(file_path, panel)
+		Globals.lobby.tcp_client.send_file_request(file_name)
+	if tex == null: #texture not yet loaded - get size from file
+		var tex_file = Globals.load_texture(file)
+		tex_size = tex_file.get_size()
+		tex = Texture2D.new()
+	tex.set_meta("image_path", file_path)
+	if width_px > 0 and tex_size.x > 0:
+		tex_size = tex_size * (width_px / tex_size.x)
+	panel.mouse_filter = Control.MOUSE_FILTER_PASS
+	panel.set_begin(begin)
+	panel.set_end(begin + tex_size)
+	var style = StyleBoxTexture.new()
+	style.texture = tex
+	panel.add_theme_stylebox_override("panel", style)
+	panel.set_meta("type", "rect")
+	panel.light_mask = layer.light_mask
+	layer.add_child(panel)
+	if to_back:
+		layer.move_child(panel, 0)
+	panel.set_owner(layers_root)
+	create_object_on_remote_peers(panel, true)
+	return panel
 		
 func _text_edit_finished():
 	selected.clear()

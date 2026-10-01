@@ -805,7 +805,6 @@ mouse_filter = 0
 [node name="ToolBar" parent="CanvasLayer" instance=ExtResource("4_4e45f")]
 anchors_preset = -1
 offset_right = -1066.0
-script = null
 
 [node name="MapsButton" type="Button" parent="CanvasLayer"]
 offset_left = 1402.0
@@ -847,12 +846,11 @@ mouse_filter = 2
 visible = false
 
 [node name="Button" type="Button" parent="CanvasLayer"]
-offset_left = 34.0
-offset_top = 722.00006
-offset_right = 342.0
-offset_bottom = 1030.0001
-scale = Vector2(0.2516333, 0.10932255)
-icon = ExtResource("2_8c7ws")
+offset_left = 1296.0
+offset_top = -1.0
+offset_right = 1396.0
+offset_bottom = 36.0
+tooltip_text = "Open the GM Companion bridge: connection, player link, compendium, characters"
 script = ExtResource("1_wslke")
 
 [connection signal="child_exiting_tree" from="." to="." method="_on_child_exiting_tree"]

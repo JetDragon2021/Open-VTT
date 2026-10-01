@@ -34,12 +34,13 @@ var char_tree: Tree
 var snapping = false
 var measureTool = 1 #1 == line | 2 == circle | 3 == angle
 var measureAngle = 30
+var rulerMode = 0 #MapMeasure.Ruler: 0 D&D grid | 1 straight line | 2 alternating diagonals
 var snappingFraction = 1
 var select_recursive = true
 var tool = "select"
 var colorLines = Color(0,0,0,1)
-var colorBack = Color(1,1,1,1)
-var lineWidth = 10
+var colorBack = Color(1, 0.85, 0.3, 0.3) #see-through, so a shape doesn't hide the map under it
+var lineWidth = 4
 
 var fontName = "default"
 var font = load("res://fonts/Seagram tfb.ttf")

@@ -17,7 +17,7 @@ var _end_button: Button
 var _session_status_label: Label
 
 # ── Header (always visible) ──────────────────────────────────────────────────
-const EXPANDED_SIZE = Vector2i(460, 680)
+const EXPANDED_SIZE = Vector2i(460, 760)
 # Wide enough for the session status, Note and Expand; tall enough for one row.
 const COMPACT_SIZE = Vector2i(340, 100)
 var _tabs: TabContainer
@@ -31,6 +31,11 @@ var _log_label: Label
 var _log_lines: Array = []
 var _path_input: LineEdit
 var _open_button: Button
+var _player_link_input: LineEdit
+var _copy_link_button: Button
+var _player_link_status: Label
+# Re-checks the player link until the tunnel is up; it can take a minute.
+var _link_timer: Timer
 
 # ── Compendium tab nodes ─────────────────────────────────────────────────────
 var _type_filter: OptionButton
@@ -91,6 +96,15 @@ func _ready() -> void:
 	_log_label    = conn.get_node("LogLabel")
 	_path_input   = conn.get_node("PathInput")
 	_open_button  = conn.get_node("OpenButton")
+	_player_link_input  = conn.get_node("PlayerLinkRow/PlayerLinkInput")
+	_copy_link_button   = conn.get_node("PlayerLinkRow/CopyLinkButton")
+	_player_link_status = conn.get_node("PlayerLinkStatus")
+	_copy_link_button.pressed.connect(_copy_player_link)
+	conn.get_node("PlayerLinkRow/RefreshLinkButton").pressed.connect(_refresh_player_link)
+	_link_timer = Timer.new()
+	_link_timer.wait_time = 5.0
+	_link_timer.timeout.connect(_refresh_player_link)
+	add_child(_link_timer)
 
 	# ── Header ──────────────────────────────────────────────────────────────
 	var header = $VBoxContainer/HeaderRow
@@ -113,6 +127,7 @@ func _ready() -> void:
 	_save_button.pressed.connect(_on_save_pressed)
 	_open_button.pressed.connect(_on_open_pressed)
 	EventBridge.launch_finished.connect(_set_open_busy.bind(false))
+	EventBridge.launch_finished.connect(_refresh_player_link)
 	# A launch started before the panel was reopened may still be running.
 	_set_open_busy(EventBridge.is_launching())
 	_test_button.pressed.connect(_on_test_pressed)
@@ -126,6 +141,7 @@ func _ready() -> void:
 	# Session status
 	EventBridge.session_status_changed.connect(_on_session_status_changed)
 	EventBridge.refresh_session_status()
+	_refresh_player_link()
 
 	# ── Compendium tab ──────────────────────────────────────────────────────
 	var comp = $VBoxContainer/TabContainer/Compendium
@@ -215,9 +231,48 @@ func _on_test_pressed() -> void:
 	_test_button.disabled = true
 	_test_button.text = "Testing…"
 	EventBridge.test_connection()
+	_refresh_player_link()
 	await get_tree().create_timer(3.5).timeout
 	_test_button.disabled = false
 	_test_button.text = "Test Connection"
+
+
+# ── Player link ──────────────────────────────────────────────────────────────
+# The companion's launcher starts the player site and a tunnel to it; this
+# shows the public link it got, so the GM can paste it to the players.
+
+func _refresh_player_link() -> void:
+	EventBridge.fetch_player_link(_on_player_link)
+
+
+func _on_player_link(code: int, data: Dictionary) -> void:
+	var url := str(data.get("url", "")) if data.get("url") != null else ""
+	var status := str(data.get("status", ""))
+	_player_link_input.text = url
+	_copy_link_button.disabled = url.is_empty()
+	if code != 200:
+		_player_link_status.text = str(data.get("error", "Couldn't ask the companion for the link"))
+		_player_link_status.modulate = Color(0.7, 0.7, 0.7)
+	elif status == "up":
+		_player_link_status.text = "● Players can open it now. It changes every time the companion starts."
+		_player_link_status.modulate = Color(0.2, 0.9, 0.3)
+	else:
+		_player_link_status.text = str(data.get("message", "")) if data.get("message") != null else "Starting…"
+		_player_link_status.modulate = Color(0.95, 0.7, 0.2) if status == "starting" else Color(0.9, 0.4, 0.3)
+	# Keep checking while it's on its way; stop once there's a link or nothing is running.
+	if status == "starting" or (status == "error" and code == 200 and url.is_empty() and str(data.get("message", "")).contains("trying again")):
+		if _link_timer.is_stopped():
+			_link_timer.start()
+	else:
+		_link_timer.stop()
+
+
+func _copy_player_link() -> void:
+	if _player_link_input.text.is_empty():
+		return
+	DisplayServer.clipboard_set(_player_link_input.text)
+	_player_link_status.text = "✓ Copied — paste it to your players."
+	_player_link_status.modulate = Color(0.2, 0.9, 0.3)
 
 
 func _on_start_pressed() -> void:

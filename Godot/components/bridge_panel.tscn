@@ -72,6 +72,33 @@ name = "OpenButton"
 text = "Open Companion"
 tooltip_text = "Opens the companion in your browser, starting its dev server first if it isn't running (localhost only)."
 
+[node name="PlayerLinkLabel" type="Label" parent="VBoxContainer/TabContainer/Connection"]
+text = "Player link — send this to your players"
+
+[node name="PlayerLinkRow" type="HBoxContainer" parent="VBoxContainer/TabContainer/Connection"]
+
+[node name="PlayerLinkInput" type="LineEdit" parent="VBoxContainer/TabContainer/Connection/PlayerLinkRow"]
+name = "PlayerLinkInput"
+editable = false
+placeholder_text = "Start the companion to get a link"
+size_flags_horizontal = 3
+
+[node name="CopyLinkButton" type="Button" parent="VBoxContainer/TabContainer/Connection/PlayerLinkRow"]
+name = "CopyLinkButton"
+disabled = true
+text = "Copy"
+tooltip_text = "Copy the player link to the clipboard"
+
+[node name="RefreshLinkButton" type="Button" parent="VBoxContainer/TabContainer/Connection/PlayerLinkRow"]
+name = "RefreshLinkButton"
+text = "↻"
+tooltip_text = "Check for the player link again"
+
+[node name="PlayerLinkStatus" type="Label" parent="VBoxContainer/TabContainer/Connection"]
+name = "PlayerLinkStatus"
+text = ""
+autowrap_mode = 3
+
 [node name="ButtonRow" type="HBoxContainer" parent="VBoxContainer/TabContainer/Connection"]
 
 [node name="SaveButton" type="Button" parent="VBoxContainer/TabContainer/Connection/ButtonRow"]

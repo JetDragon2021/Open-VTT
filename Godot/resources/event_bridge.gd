@@ -902,6 +902,13 @@ func _call_companion(method: int, path: String, body, on_done: Callable) -> void
 		on_done.call(0, { "error": "Couldn't send the request (error %d)" % err })
 
 
+# The link to send players: { status: off|starting|up|error, url, localUrl,
+# message }. The companion's launcher opens a Cloudflare quick tunnel to the
+# player site, so the url changes every time the companion starts.
+func fetch_player_link(on_done: Callable) -> void:
+	_call_companion(HTTPClient.METHOD_GET, "/api/player-link", null, on_done)
+
+
 # Everything a note can be about in the active campaign.
 func fetch_entities(on_done: Callable) -> void:
 	_call_companion(HTTPClient.METHOD_GET, "/api/entities", null, on_done)

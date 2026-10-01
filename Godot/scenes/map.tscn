@@ -1,4 +1,4 @@
-[gd_scene load_steps=70 format=3 uid="uid://ccw42f1qnw32m"]
+[gd_scene load_steps=69 format=3 uid="uid://ccw42f1qnw32m"]
 
 [ext_resource type="Script" uid="uid://w2o2qj4cq5je" path="res://scripts/CameraMap.gd" id="1_ihf1l"]
 [ext_resource type="Script" uid="uid://dnti2yrxes1uf" path="res://scripts/bridge_toolbar_button.gd" id="1_wslke"]

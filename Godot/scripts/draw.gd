@@ -942,10 +942,15 @@ func _unhandled_input(event):
 		if Input.is_action_just_pressed("Delete") or Input.is_action_just_pressed("ui_cut"): #delete or cut selection
 			if selected.is_empty():
 				return
-			if Input.is_action_just_pressed("ui_cut"):
+			var is_cut = Input.is_action_just_pressed("ui_cut")
+			if is_cut:
 				copy_to_clipboard()
 			Globals.lobby.add_operation_to_undo_stack([Globals.lobby.undo_types.REMOVE, []])
 			for child in selected: #delete
+				# Deleting a token means the creature is gone from play, which the
+				# GM Companion records as a death. A cut is a move, not a death.
+				if not is_cut:
+					EventBridge.report_token_removed(child)
 				remove_object(child, false, false, true)
 			#remove select box
 			if select_box != null:
@@ -2577,6 +2582,9 @@ func synch_object_removal(path_to_object):
 	if node == null:
 		print("synch removal path not found - ", path_to_object)
 		return
+	# A peer deleted this. Only the GM's install has bridge credentials, so this
+	# is where their deletions reach the companion.
+	EventBridge.report_token_removed(node)
 	remove_object(node, true)
 
 @rpc("any_peer", "call_remote", "reliable")

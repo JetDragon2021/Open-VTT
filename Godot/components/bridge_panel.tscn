@@ -16,6 +16,26 @@ offset_top = 12.0
 offset_right = -12.0
 offset_bottom = -12.0
 
+[node name="HeaderRow" type="HBoxContainer" parent="VBoxContainer"]
+alignment = 2
+
+[node name="MiniStatus" type="Label" parent="VBoxContainer/HeaderRow"]
+name = "MiniStatus"
+visible = false
+text = "Session status unknown"
+text_overrun_behavior = 3
+size_flags_horizontal = 3
+
+[node name="NoteButton" type="Button" parent="VBoxContainer/HeaderRow"]
+name = "NoteButton"
+text = "Note"
+tooltip_text = "Log a quick note into the session (Ctrl+Shift+N)"
+
+[node name="MinimizeButton" type="Button" parent="VBoxContainer/HeaderRow"]
+name = "MinimizeButton"
+text = "Minimize"
+tooltip_text = "Shrink this window to a small strip"
+
 [node name="TabContainer" type="TabContainer" parent="VBoxContainer"]
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -171,6 +191,9 @@ autowrap_mode = 3
 text = "Player characters in the companion's active campaign."
 autowrap_mode = 3
 theme_override_colors/font_color = Color(0.6, 0.6, 0.6, 1)
+
+[node name="KindPicker" type="OptionButton" parent="VBoxContainer/TabContainer/Characters"]
+name = "KindPicker"
 
 [node name="RefreshButton" type="Button" parent="VBoxContainer/TabContainer/Characters"]
 name = "RefreshButton"

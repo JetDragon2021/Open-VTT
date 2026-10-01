@@ -15,6 +15,18 @@ var _status_label: Label
 var _start_button: Button
 var _end_button: Button
 var _session_status_label: Label
+
+# ── Header (always visible) ──────────────────────────────────────────────────
+const EXPANDED_SIZE = Vector2i(460, 680)
+# Wide enough for the session status, Note and Expand; tall enough for one row.
+const COMPACT_SIZE = Vector2i(340, 100)
+var _tabs: TabContainer
+var _mini_status: Label
+var _note_button: Button
+var _minimize_button: Button
+var _compact: bool = false
+# The size the GM had it at, restored on expand — they may have resized it.
+var _expanded_size: Vector2i = EXPANDED_SIZE
 var _log_label: Label
 var _log_lines: Array = []
 var _path_input: LineEdit
@@ -53,12 +65,16 @@ var _character_list: ItemList
 var _sheet_preview_label: Label
 var _send_button: Button
 var _characters_status: Label
+var _kind_picker: OptionButton
+var _characters_hint: Label
+# "pc" lists player characters; "npc" lists the GM's NPCs.
+var _kind: String = "pc"
 
 # The companion sheet (lib/vtt-sheet.ts) of the selected character, once loaded.
 var _selected_sheet: Dictionary = {}
-# Attribute groups written from a companion sheet, as "[group] name" keys.
-# Only these are removed on resync — anything the GM added by hand stays.
-const SHEET_GROUP_PREFIXES = ["[Feature] ", "[Mastery] ", "[Cantrip] ", "[Spell ", "[Pending] "]
+# Writing companion sheets onto VTT characters is shared with EventBridge, which
+# does the same when a boss changes phase.
+const VttSheetWriter = preload("res://scripts/vtt_sheet_writer.gd")
 
 
 func _ready() -> void:
@@ -75,6 +91,18 @@ func _ready() -> void:
 	_log_label    = conn.get_node("LogLabel")
 	_path_input   = conn.get_node("PathInput")
 	_open_button  = conn.get_node("OpenButton")
+
+	# ── Header ──────────────────────────────────────────────────────────────
+	var header = $VBoxContainer/HeaderRow
+	_tabs            = $VBoxContainer/TabContainer
+	_mini_status     = header.get_node("MiniStatus")
+	_note_button     = header.get_node("NoteButton")
+	_minimize_button = header.get_node("MinimizeButton")
+	_note_button.pressed.connect(EventBridge.open_note_window)
+	_minimize_button.pressed.connect(_toggle_compact)
+	# A Window doesn't hide itself when its close button is pressed, so without
+	# this the X did nothing and the panel couldn't be put away.
+	close_requested.connect(hide)
 
 	# Pre-fill from saved config
 	_url_input.text    = EventBridge._companion_url
@@ -147,6 +175,11 @@ func _ready() -> void:
 	_sheet_preview_label = chars.get_node("SheetPreviewScroll/SheetPreviewLabel")
 	_send_button         = chars.get_node("SendButton")
 	_characters_status   = chars.get_node("CharactersStatusLabel")
+	_kind_picker         = chars.get_node("KindPicker")
+	_characters_hint     = chars.get_node("CharactersHint")
+	_kind_picker.add_item("Player characters")
+	_kind_picker.add_item("NPCs")
+	_kind_picker.item_selected.connect(_on_kind_selected)
 	_refresh_button.pressed.connect(_refresh_characters)
 	_character_list.item_selected.connect(_on_character_selected)
 	_send_button.pressed.connect(_on_send_pressed)
@@ -204,6 +237,28 @@ func _on_session_status_changed(active: bool, session_name: String) -> void:
 	else:
 		_session_status_label.text = "○ No session running"
 		_session_status_label.modulate = Color(0.7, 0.7, 0.7)
+	# The collapsed strip shows the same thing, so it's readable without expanding.
+	_mini_status.text = ("● %s" % session_name) if active else "○ No session"
+	_mini_status.modulate = _session_status_label.modulate
+
+
+# Embedded sub-windows have no native minimize, so this collapses the panel to
+# a strip that still shows whether a session is running.
+func _toggle_compact() -> void:
+	_set_compact(not _compact)
+
+
+func _set_compact(compact: bool) -> void:
+	if compact == _compact:
+		return
+	if compact:
+		_expanded_size = size
+	_compact = compact
+	_tabs.visible = not compact
+	_mini_status.visible = compact
+	_minimize_button.text = "Expand" if compact else "Minimize"
+	_minimize_button.tooltip_text = "Show the full bridge panel" if compact else "Shrink this window to a small strip"
+	size = COMPACT_SIZE if compact else _expanded_size
 
 
 func update_status(status_text: String) -> void:
@@ -364,7 +419,7 @@ func _format_abilities_preview(stat_block) -> String:
 			var ability_name = str(ability.get("name", ""))
 			if ability_name.is_empty():
 				continue
-			var text = _entries_to_text(ability.get("entries", []))
+			var text = _entries_to_text(ability.get("text", ability.get("entries", [])))
 			lines.append("%s\n%s" % [ability_name, text] if not text.is_empty() else ability_name)
 		sections.append("\n".join(lines))
 	return "\n\n".join(sections)
@@ -397,15 +452,7 @@ func _on_add_pressed() -> void:
 
 
 func _size_to_token_size(size: String) -> Vector2:
-	# One grid square = 70px = 5 ft
-	match size:
-		"Tiny":       return Vector2(35, 35)   # 2.5 ft — half square
-		"Small":      return Vector2(70, 70)   # 5 ft  — 1×1
-		"Medium":     return Vector2(70, 70)   # 5 ft  — 1×1
-		"Large":      return Vector2(140, 140) # 10 ft — 2×2
-		"Huge":       return Vector2(210, 210) # 15 ft — 3×3
-		"Gargantuan": return Vector2(280, 280) # 20 ft — 4×4
-	return Vector2(70, 70)
+	return VttSheetWriter.size_to_token_size(size)
 
 
 func _ability_mod_str(score: int) -> String:
@@ -510,7 +557,7 @@ func _add_ability_group(character, stat_block: Dictionary, key: String, prefix: 
 		var ability_name = ability.get("name", "")
 		if ability_name.is_empty():
 			continue
-		var text = _entries_to_text(ability.get("entries", []))
+		var text = _entries_to_text(ability.get("text", ability.get("entries", [])))
 		var attr_key = "[%s] %s" % [prefix, ability_name]
 		character.attributes[attr_key] = [text, text]
 		count += 1
@@ -650,12 +697,22 @@ func _on_spawn_failed(error: String) -> void:
 # Characters tab — send companion character sheets to the VTT
 # ═══════════════════════════════════════════════════════════════════════════
 
+func _on_kind_selected(index: int) -> void:
+	_kind = "npc" if index == 1 else "pc"
+	_characters_hint.text = "NPCs in the companion's active campaign." if _kind == "npc" else "Player characters in the companion's active campaign."
+	_character_list.clear()
+	_selected_sheet = {}
+	_sheet_preview_label.text = ""
+	_send_button.disabled = true
+	_refresh_characters()
+
+
 func _refresh_characters() -> void:
 	if EventBridge._companion_url.is_empty() or EventBridge._bridge_secret.is_empty():
 		_characters_status.text = "Configure bridge connection first (Connection tab)."
 		return
-	_characters_status.text = "Loading characters…"
-	EventBridge.fetch_characters()
+	_characters_status.text = "Loading NPCs…" if _kind == "npc" else "Loading characters…"
+	EventBridge.fetch_characters(_kind)
 
 
 func _on_characters_received(characters: Array) -> void:
@@ -664,10 +721,16 @@ func _on_characters_received(characters: Array) -> void:
 	_sheet_preview_label.text = ""
 	_send_button.disabled = true
 	if characters.is_empty():
-		_characters_status.text = "No characters in the active campaign yet."
+		_characters_status.text = "No NPCs in the active campaign yet — make one in the companion." if _kind == "npc" else "No characters in the active campaign yet."
 		return
 	_characters_status.text = ""
 	for c in characters:
+		if _kind == "npc":
+			var detail = " · ".join(PackedStringArray([str(c.get("summary", "")), str(c.get("creatureType", ""))].filter(func(x): return x != "" and x != "<null>")))
+			var npc_on_vtt = "  ✓ on VTT" if _find_vtt_character(str(c["name"])) != null else ""
+			var npc_idx = _character_list.add_item("%s%s%s" % [c["name"], " — " + detail if detail != "" else "", npc_on_vtt])
+			_character_list.set_item_metadata(npc_idx, c)
+			continue
 		# classLabel names every class ("Fighter 3 (Champion) / Wizard 1"); an
 		# older companion only sends className, so fall back to it.
 		var classes = str(c.get("classLabel", c["className"]))
@@ -684,18 +747,41 @@ func _on_character_selected(index: int) -> void:
 	_send_button.disabled = true
 	_sheet_preview_label.text = ""
 	_characters_status.text = "Loading sheet…"
-	EventBridge.fetch_character_sheet(str(c["id"]))
+	EventBridge.fetch_character_sheet(str(c["id"]), _kind)
 
 
 func _on_character_sheet_received(sheet: Dictionary) -> void:
 	_selected_sheet = sheet
 	var a: Dictionary = sheet.get("attributes", {})
-	var lines: Array = [
-		"%s — %s" % [a.get("name", ""), a.get("class", "")],
-		"%s · %s" % [a.get("species", ""), a.get("background", "")],
-		"HP %s/%s · AC %s · Speed %s · Init %s · PB %s" % [a.get("hp", ""), a.get("max_hp", ""), a.get("ac", ""), a.get("speed", ""), a.get("initiative", ""), a.get("proficiency_bonus", "")],
-		"STR %s  DEX %s  CON %s  INT %s  WIS %s  CHA %s" % [a.get("str", ""), a.get("dex", ""), a.get("con", ""), a.get("int", ""), a.get("wis", ""), a.get("cha", "")],
-	]
+	var lines: Array = []
+	if str(sheet.get("kind", "pc")) == "npc":
+		# An NPC only has what the GM filled in, so list just that.
+		lines.append("%s — %s" % [a.get("name", ""), a.get("role", "NPC")])
+		var facts: Array = []
+		for key in ["type", "ac", "speed"]:
+			if a.has(key):
+				facts.append(("AC %s" if key == "ac" else "%s") % a[key])
+		facts.push_front(str(sheet.get("size", "Medium")))
+		lines.append(" · ".join(PackedStringArray(facts)))
+		lines.append("HP %s/%s" % [a["hp"], a["max_hp"]] if a.has("hp") else "No hit points — damage on this token won't be tracked.")
+		if sheet.has("boss") or a.has("legendary_resistance") or a.has("legendary_actions"):
+			var boss_bits: Array = []
+			if sheet.has("boss"):
+				boss_bits.append("Phase %d of %d" % [int(sheet["boss"]["currentPhase"]), int(sheet["boss"]["phases"])])
+			if a.has("legendary_resistance"):
+				boss_bits.append("Legendary resistance %s" % a["legendary_resistance"])
+			if a.has("legendary_actions"):
+				boss_bits.append("Legendary actions %s" % a["legendary_actions"])
+			lines.append("Boss · " + " · ".join(PackedStringArray(boss_bits)))
+		if a.has("str"):
+			lines.append("STR %s  DEX %s  CON %s  INT %s  WIS %s  CHA %s" % [a.get("str", ""), a.get("dex", ""), a.get("con", ""), a.get("int", ""), a.get("wis", ""), a.get("cha", "")])
+	else:
+		lines = [
+			"%s — %s" % [a.get("name", ""), a.get("class", "")],
+			"%s · %s" % [a.get("species", ""), a.get("background", "")],
+			"HP %s/%s · AC %s · Speed %s · Init %s · PB %s" % [a.get("hp", ""), a.get("max_hp", ""), a.get("ac", ""), a.get("speed", ""), a.get("initiative", ""), a.get("proficiency_bonus", "")],
+			"STR %s  DEX %s  CON %s  INT %s  WIS %s  CHA %s" % [a.get("str", ""), a.get("dex", ""), a.get("con", ""), a.get("int", ""), a.get("wis", ""), a.get("cha", "")],
+		]
 	if a.has("spell_save_dc"):
 		lines.append("Spell save DC %s · Spell attack %s" % [a["spell_save_dc"], a.get("spell_attack", "")])
 	var counts: Dictionary = {}
@@ -726,7 +812,7 @@ func _on_send_pressed() -> void:
 		_update_vtt_character(character, _selected_sheet)
 		_characters_status.text = "✓ %s updated on the VTT." % char_name
 	else:
-		if _create_pc_character(_selected_sheet):
+		if _create_sheet_character(_selected_sheet):
 			_characters_status.text = "✓ %s added to the VTT. HP changes on its tokens are logged to the companion." % char_name
 	_send_button.text = "Update on VTT"
 
@@ -734,27 +820,11 @@ func _on_send_pressed() -> void:
 # The event bridge matches tokens to companion entities by the "name"
 # attribute, so that is what identifies a synced character.
 func _find_vtt_character(char_name: String) -> Object:
-	if Globals.char_tree == null or char_name.is_empty():
-		return null
-	var root = Globals.char_tree.get_root()
-	return _find_in_tree(root, char_name) if root != null else null
+	return VttSheetWriter.find_character(Globals.char_tree, char_name)
 
 
-func _find_in_tree(item: TreeItem, char_name: String) -> Object:
-	if item.has_meta("character"):
-		var character = item.get_meta("character")
-		if character != null and str(character.attributes.get("name", ["", ""])[1]) == char_name:
-			return character
-	var child = item.get_first_child()
-	while child != null:
-		var found = _find_in_tree(child, char_name)
-		if found != null:
-			return found
-		child = child.get_next()
-	return null
-
-
-func _create_pc_character(sheet: Dictionary) -> bool:
+# Creates a VTT character from a companion sheet — a player character or an NPC.
+func _create_sheet_character(sheet: Dictionary) -> bool:
 	var root = Globals.char_tree.get_root()
 	var campaign_item: TreeItem = null
 	var child = root.get_first_child() if root != null else null
@@ -774,19 +844,22 @@ func _create_pc_character(sheet: Dictionary) -> bool:
 	var character = tree_item.get_meta("character")
 	# Start clean rather than inheriting the parent folder's attributes.
 	character.attributes.clear()
-	character.player_character = true
+	var is_pc = str(sheet.get("kind", "pc")) == "pc"
+	# Player characters get the player flag (their token lights the map for them);
+	# an NPC is the GM's, like a monster.
+	character.player_character = is_pc
 	_write_sheet(character, sheet)
 	character.token_size = _size_to_token_size(str(sheet.get("size", "Medium")))
-	character.bars = [{
-		"attr1":  "hp",
-		"attr2":  "max_hp",
-		"color":  Color(0.2, 0.7, 0.3, 1.0),
-		"size":   10.0,
-	}]
-	character.attr_bubbles = [
-		{"name": "ac",    "edit": false, "icon": "", "image": ""},
-		{"name": "speed", "edit": false, "icon": "", "image": ""},
-	]
+	# An NPC with no hit points has nothing to draw a bar for, and nothing for
+	# the bridge to log damage against.
+	var attrs: Dictionary = sheet.get("attributes", {})
+	if attrs.has("hp") and attrs.has("max_hp"):
+		character.bars = [_hp_bar(is_pc)]
+	var bubbles: Array = []
+	for bubble in ["ac", "speed"]:
+		if attrs.has(bubble):
+			bubbles.append({"name": bubble, "edit": false, "icon": "", "image": ""})
+	character.attr_bubbles = bubbles
 	character.save()
 	EventBridge.rebaseline_character(character)
 	return true
@@ -795,44 +868,12 @@ func _create_pc_character(sheet: Dictionary) -> bool:
 # Resync after a level-up or rest: replaces what the companion owns and keeps
 # tokens, bars, images and anything the GM added by hand.
 func _update_vtt_character(character: Object, sheet: Dictionary) -> void:
-	var incoming = _sheet_attributes(sheet)
+	VttSheetWriter.apply_update(character, sheet, EventBridge.rebaseline_character)
 
-	var removed: Array = []
-	for key in character.attributes.keys():
-		if incoming.has(key):
-			continue
-		for prefix in SHEET_GROUP_PREFIXES:
-			if str(key).begins_with(prefix):
-				removed.append(key)
-				break
 
-	var created: Array = []
-	var updated: Array = []
-	for key in incoming:
-		if not character.attributes.has(key):
-			created.append(key)
-		elif str(character.attributes[key][0]) != incoming[key]:
-			updated.append(key)
-		character.attributes[key] = [incoming[key], incoming[key]]
-	for key in removed:
-		character.attributes.erase(key)
-
-	character.token_size = _size_to_token_size(str(sheet.get("size", "Medium")))
-	character.save()
-
-	# Rebaseline before signalling: the bridge logs HP deltas from attr_updated,
-	# and taking the companion's HP must not be logged as damage or healing.
-	EventBridge.rebaseline_character(character)
-	for key in removed:
-		character.emit_signal("attr_removed", key)
-	for key in created:
-		if character.token != null:
-			character.token.on_attr_created(key, character.attributes[key])
-		character.emit_signal("attr_created", key, character.attributes[key])
-	for key in updated:
-		character.emit_signal("attr_updated", key, false)
-	character.emit_signal("bars_changed")
-	character.emit_signal("attr_bubbles_changed")
+# Green for a player character, blue for an NPC — monsters are red.
+func _hp_bar(is_pc: bool) -> Dictionary:
+	return VttSheetWriter.hp_bar(is_pc)
 
 
 func _write_sheet(character: Object, sheet: Dictionary) -> void:
@@ -842,10 +883,4 @@ func _write_sheet(character: Object, sheet: Dictionary) -> void:
 
 
 func _sheet_attributes(sheet: Dictionary) -> Dictionary:
-	var result: Dictionary = {}
-	var attrs: Dictionary = sheet.get("attributes", {})
-	for key in attrs:
-		result[key] = str(attrs[key])
-	for ab in sheet.get("abilities", []):
-		result["[%s] %s" % [ab["group"], ab["name"]]] = str(ab["text"])
-	return result
+	return VttSheetWriter.sheet_attributes(sheet)

@@ -17,6 +17,8 @@ signal characters_received(characters: Array)
 signal character_sheet_received(sheet: Dictionary)
 signal characters_failed(error: String)
 signal session_status_changed(active: bool, session_name: String)
+# A boss entered a phase; `change` is the companion's phase_changes entry.
+signal phase_changed(change: Dictionary)
 
 # ── Connection status ───────────────────────────────────────────────────────
 enum Status { DISCONNECTED, CONNECTED, ERROR }
@@ -33,6 +35,9 @@ var _launching: bool = false
 
 # ── Session state ───────────────────────────────────────────────────────────
 var _active_session_id: String = ""
+# Mirrors the last known session state; read by the note window on open.
+var session_active: bool = false
+var session_name: String = ""
 
 # ── Entity name → UUID cache (populated lazily per character) ───────────────
 var _entity_cache: Dictionary = {}
@@ -54,6 +59,8 @@ var _http_sheet: HTTPRequest       # one character's VTT sheet
 var _http_session_status: HTTPRequest  # active-session poll
 
 const MAX_QUEUE = 50
+# Shared with the bridge panel — see the script for why it isn't inline.
+const VttSheetWriter = preload("res://scripts/vtt_sheet_writer.gd")
 const CONFIG_PATH = "user://event_bridge.cfg"
 
 
@@ -188,9 +195,15 @@ func _on_attr_updated(attr: StringName, remote: bool, char: Object) -> void:
 	if delta == 0.0:
 		return
 
+	var amount := int(abs(delta))
+	if amount == 0:
+		return  # a fraction of a point — the companion only takes whole HP
 	var kind: String = "healing" if delta > 0 else "damage"
 	var char_name: String = _get_char_name(char)
-	_enqueue_after_lookup(char_name, kind, int(abs(delta)))
+	# The delta says what happened; hp_after says where the token ended up. The
+	# companion pins HP to it, so a value set straight to full can't drift the
+	# total, and it is never negative there.
+	_enqueue_after_lookup(char_name, kind, amount, { "hp_after": maxi(0, int(new_val)) })
 
 
 func _get_char_name(char: Object) -> String:
@@ -207,21 +220,51 @@ func _get_char_name(char: Object) -> String:
 # Deletion = death
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Removing a character from the tree is the only delete path in Open-VTT, and
-# the GM does it when a creature is gone from play — so the companion records
-# it as a death. Call this BEFORE the character is freed: only the name is
-# read, but it has to still be readable.
+# A creature leaves play in one of two ways, and the GM does either when it is
+# gone — so the companion records both as a death:
+#   - deleting its token from the map (Delete key): report_token_removed
+#   - deleting the character from the tool panel's tree: report_character_deleted
+# Both can happen for the same creature; the companion ignores the repeat.
+# Call these BEFORE the node is freed: only the name is read, but it has to
+# still be readable.
 func report_character_deleted(char: Object) -> void:
 	if char == null:
 		return
 	var char_name := _get_char_name(char)
 	if char_name.is_empty():
 		return
-	_enqueue_after_lookup(char_name, "died", -1)
+	_report_death(char_name)
 	# Drop the cached id only after enqueuing, so this event can still use it.
 	# A later character reusing the name must re-resolve rather than inherit it.
 	_prev_attrs.erase(char.get_instance_id())
 	_entity_cache.erase(char_name)
+
+
+# `object` is whatever draw.gd is about to remove: the token, or the polygon
+# inside it that actually gets selected. Anything else on the map (drawings,
+# lights, text) has no character and is ignored.
+func report_token_removed(object: Object) -> void:
+	if object == null or not is_instance_valid(object):
+		return
+	var token: Object = null
+	if object.has_meta("type"):
+		if object.get_meta("type") == "token":
+			token = object
+	else:
+		var parent = object.get_parent()
+		if parent != null and parent.has_meta("type") and parent.get_meta("type") == "token":
+			token = parent
+	if token == null or not ("character" in token) or token.character == null:
+		return
+	# Unlike deleting the character itself, the character may live on (it is
+	# still in the tree, or another token shares it) — so its bookkeeping stays.
+	var char_name := _get_char_name(token.character)
+	if not char_name.is_empty():
+		_report_death(char_name)
+
+
+func _report_death(char_name: String) -> void:
+	_enqueue_after_lookup(char_name, "died", -1)
 
 
 func _on_turn_selected(token) -> void:
@@ -244,14 +287,21 @@ var _lookup_pending: Dictionary = {}
 # name a given reply answers.
 var _lookup_inflight: String = ""
 
-func _enqueue_after_lookup(char_name: String, kind: String, amount: int) -> void:
+# `extra` carries optional fields for the event body (currently hp_after).
+func _enqueue_after_lookup(char_name: String, kind: String, amount: int, extra: Dictionary = {}) -> void:
 	if _companion_url.is_empty() or _bridge_secret.is_empty():
 		return
 	if _entity_cache.has(char_name):
-		_enqueue({ "entity_id": _entity_cache[char_name], "kind": kind, "amount": amount })
+		_enqueue(_make_event(_entity_cache[char_name], kind, amount, extra))
 		return
-	_lookup_pending[char_name] = { "kind": kind, "amount": amount }
+	_lookup_pending[char_name] = { "kind": kind, "amount": amount, "extra": extra }
 	_pump_lookups()
+
+
+func _make_event(entity_id: String, kind: String, amount: int, extra: Dictionary) -> Dictionary:
+	var event := { "entity_id": entity_id, "kind": kind, "amount": amount }
+	event.merge(extra)
+	return event
 
 
 # Sends the next queued lookup if none is in flight. Lookups are serialised
@@ -299,7 +349,7 @@ func _on_lookup_completed(_result: int, code: int, _headers: PackedStringArray, 
 	else:
 		_entity_cache[char_name] = found_id
 		if not pending.is_empty():
-			_enqueue({ "entity_id": found_id, "kind": pending["kind"], "amount": pending["amount"] })
+			_enqueue(_make_event(found_id, pending["kind"], pending["amount"], pending.get("extra", {})))
 
 	_pump_lookups()
 
@@ -328,15 +378,7 @@ func _dispatch_next() -> void:
 	var kind: String = event["kind"]
 	var amount = event["amount"]  # int or -1 (null sentinel)
 
-	var body_dict: Dictionary = {
-		"kind": kind,
-		"actor_entity_id": eid,
-		"entity_ids": [eid],
-	}
-	if amount >= 0:
-		body_dict["amount"] = amount
-
-	var json_body: String = JSON.stringify(body_dict)
+	var json_body: String = JSON.stringify(_event_body(event))
 	var headers = PackedStringArray([
 		"Authorization: Bearer " + _bridge_secret,
 		"Content-Type: application/json",
@@ -355,6 +397,21 @@ func _dispatch_next() -> void:
 	print("[EventBridge] → %s \"%s\"" % [label, eid])
 
 
+# The JSON body for POST /api/events. `amount` -1 means "none" (a death, a turn).
+func _event_body(event: Dictionary) -> Dictionary:
+	var eid: String = event["entity_id"]
+	var body_dict: Dictionary = {
+		"kind": event["kind"],
+		"actor_entity_id": eid,
+		"entity_ids": [eid],
+	}
+	if event["amount"] >= 0:
+		body_dict["amount"] = event["amount"]
+	if event.has("hp_after"):
+		body_dict["hp_after"] = event["hp_after"]
+	return body_dict
+
+
 func _on_request_completed(result: int, code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	_http_busy = false
 
@@ -370,6 +427,9 @@ func _on_request_completed(result: int, code: int, _headers: PackedStringArray, 
 	else:
 		if _connection_status != Status.CONNECTED:
 			_set_status(Status.CONNECTED, "Connected")
+
+	if result == HTTPRequest.RESULT_SUCCESS and code == 201:
+		_check_for_phase_changes(body)
 
 	_dispatch_next()
 
@@ -408,7 +468,7 @@ func _on_session_start_completed(result: int, code: int, _headers: PackedStringA
 		var session: Dictionary = data.get("session", {})
 		_active_session_id = session.get("id", "")
 		print("[EventBridge] Session started: ", _active_session_id)
-		emit_signal("session_status_changed", true, str(session.get("name", "")))
+		_set_session_state(true, str(session.get("name", "")))
 	elif code == 409:
 		_active_session_id = data.get("activeSessionId", "")
 		print("[EventBridge] Adopted existing session: ", _active_session_id)
@@ -436,9 +496,15 @@ func _on_session_end_completed(result: int, code: int, _headers: PackedStringArr
 	if result == HTTPRequest.RESULT_SUCCESS and code == 200:
 		print("[EventBridge] Session ended: ", _active_session_id)
 		_active_session_id = ""
-		emit_signal("session_status_changed", false, "")
+		_set_session_state(false, "")
 	else:
 		print("[EventBridge] end_session failed — result %d code %d" % [result, code])
+
+
+func _set_session_state(active: bool, session_name_: String) -> void:
+	session_active = active
+	session_name = session_name_
+	emit_signal("session_status_changed", active, session_name_)
 
 
 # Polls the companion for whether a session is currently active, and emits
@@ -467,10 +533,10 @@ func _on_session_status_completed(result: int, code: int, _headers: PackedString
 	var session = data.get("session")
 	if typeof(session) == TYPE_DICTIONARY:
 		_active_session_id = str(session.get("id", ""))
-		emit_signal("session_status_changed", true, str(session.get("name", "")))
+		_set_session_state(true, str(session.get("name", "")))
 	else:
 		_active_session_id = ""
-		emit_signal("session_status_changed", false, "")
+		_set_session_state(false, "")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -713,13 +779,21 @@ func _on_spawn_completed(_result: int, code: int, _headers: PackedStringArray, b
 # ═══════════════════════════════════════════════════════════════════════════
 
 # Lists the active campaign's characters.
-func fetch_characters() -> void:
+# Which list the request in flight asked for, since the two answer under
+# different keys ("characters" / "npcs").
+var _characters_kind: String = "pc"
+
+
+# kind is "pc" for player characters or "npc" for GM-run NPCs.
+func fetch_characters(kind: String = "pc") -> void:
 	if _companion_url.is_empty() or _bridge_secret.is_empty():
 		emit_signal("characters_failed", "Bridge not configured")
 		return
 	if _http_characters.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
 		_http_characters.cancel_request()
-	var url = _companion_url.trim_suffix("/") + "/api/characters"
+	_characters_kind = kind
+	var path = "/api/npcs" if kind == "npc" else "/api/characters"
+	var url = _companion_url.trim_suffix("/") + path
 	var headers = PackedStringArray(["Authorization: Bearer " + _bridge_secret])
 	_http_characters.request(url, headers, HTTPClient.METHOD_GET)
 
@@ -732,18 +806,19 @@ func _on_characters_completed(_result: int, code: int, _headers: PackedStringArr
 	if json.parse(body.get_string_from_utf8()) != OK:
 		emit_signal("characters_failed", "Invalid response from companion")
 		return
-	emit_signal("characters_received", json.get_data().get("characters", []))
+	emit_signal("characters_received", json.get_data().get("npcs" if _characters_kind == "npc" else "characters", []))
 
 
 # Fetches a character's sheet already flattened for the VTT
 # (attributes + text blocks) — see lib/vtt-sheet.ts in the companion.
-func fetch_character_sheet(character_id: String) -> void:
+func fetch_character_sheet(character_id: String, kind: String = "pc") -> void:
 	if _companion_url.is_empty() or _bridge_secret.is_empty():
 		emit_signal("characters_failed", "Bridge not configured")
 		return
 	if _http_sheet.get_http_client_status() != HTTPClient.STATUS_DISCONNECTED:
 		_http_sheet.cancel_request()
-	var url = _companion_url.trim_suffix("/") + "/api/characters/" + character_id + "/vtt"
+	var root = "/api/npcs/" if kind == "npc" else "/api/characters/"
+	var url = _companion_url.trim_suffix("/") + root + character_id + "/vtt"
 	var headers = PackedStringArray(["Authorization: Bearer " + _bridge_secret])
 	_http_sheet.request(url, headers, HTTPClient.METHOD_GET)
 
@@ -765,6 +840,170 @@ func rebaseline_character(char: Object) -> void:
 	_prev_attrs.erase(char.get_instance_id())
 	_init_prev_attrs(char)
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Quick notes — a pop-up window for logging narrative events mid-session
+# ═══════════════════════════════════════════════════════════════════════════
+
+var _note_window: Window = null
+
+
+# Loaded at call time rather than preloaded: the window's script refers back to
+# this autoload, and a preload would make the two compile-time dependencies of
+# each other.
+func open_note_window() -> void:
+	if _note_window == null or not is_instance_valid(_note_window):
+		var scene: PackedScene = load("res://components/note_window.tscn")
+		_note_window = scene.instantiate()
+		get_tree().root.add_child(_note_window)
+	_note_window.open()
+
+
+# Ctrl+Shift+N from anywhere in the VTT. Handled here, not in a scene, so it
+# works without touching map.tscn — and only sees keys nothing else consumed,
+# so typing into a text box never triggers it.
+func _unhandled_key_input(event: InputEvent) -> void:
+	var key := event as InputEventKey
+	if key == null or not key.pressed or key.echo:
+		return
+	if key.keycode == KEY_N and key.ctrl_pressed and key.shift_pressed:
+		open_note_window()
+		get_viewport().set_input_as_handled()
+
+
+# One request to the companion, answered through `on_done(code, data)`. Code 0
+# means the request never got a response; `data.error` always says why. A
+# request of its own per call, so a slow one can't cancel another.
+func _call_companion(method: int, path: String, body, on_done: Callable) -> void:
+	if _companion_url.is_empty() or _bridge_secret.is_empty():
+		on_done.call(0, { "error": "Bridge not configured — set the URL and secret on the Connection tab." })
+		return
+	var hr := HTTPRequest.new()
+	hr.timeout = 15.0
+	add_child(hr)
+	hr.request_completed.connect(func(result: int, code: int, _headers: PackedStringArray, response: PackedByteArray) -> void:
+		hr.queue_free()
+		if result != HTTPRequest.RESULT_SUCCESS:
+			on_done.call(0, { "error": "Companion unreachable — is it running?" })
+			return
+		var json := JSON.new()
+		var data: Dictionary = {}
+		if json.parse(response.get_string_from_utf8()) == OK and typeof(json.get_data()) == TYPE_DICTIONARY:
+			data = json.get_data()
+		if code >= 400 and not data.has("error"):
+			data["error"] = "Companion returned %d" % code
+		on_done.call(code, data))
+	var headers := PackedStringArray(["Authorization: Bearer " + _bridge_secret, "Content-Type: application/json"])
+	var url := _companion_url.trim_suffix("/") + path
+	var err := hr.request(url, headers, method, "" if body == null else JSON.stringify(body))
+	if err != OK:
+		hr.queue_free()
+		on_done.call(0, { "error": "Couldn't send the request (error %d)" % err })
+
+
+# Everything a note can be about in the active campaign.
+func fetch_entities(on_done: Callable) -> void:
+	_call_companion(HTTPClient.METHOD_GET, "/api/entities", null, on_done)
+
+
+func create_entity(entity_name: String, type: String, on_done: Callable) -> void:
+	_call_companion(HTTPClient.METHOD_POST, "/api/entities", { "name": entity_name, "type": type }, on_done)
+
+
+# Logs a note about one entity into the running session (or outside any session
+# if none is running — the companion decides). Append-only: no undo.
+func log_note(entity_id: String, text: String, on_done: Callable) -> void:
+	_call_companion(HTTPClient.METHOD_POST, "/api/events", {
+		"kind": "note",
+		"text": text,
+		"actor_entity_id": entity_id,
+		"entity_ids": [entity_id],
+	}, on_done)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Boss phases
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# The companion decides when an HP-triggered phase starts, since it holds the
+# event log HP is derived from; it reports the phases a hit carried the boss
+# into in the response to that hit. This turns the report into what the GM
+# needs at the table: the token updated, and a window saying what changed.
+
+func _check_for_phase_changes(body: PackedByteArray) -> void:
+	var json := JSON.new()
+	if json.parse(body.get_string_from_utf8()) != OK or typeof(json.get_data()) != TYPE_DICTIONARY:
+		return
+	for change in json.get_data().get("phase_changes", []):
+		if typeof(change) == TYPE_DICTIONARY:
+			_handle_phase_change(change)
+
+
+func _handle_phase_change(change: Dictionary) -> void:
+	phase_changed.emit(change)
+	var id := str(change.get("entity_id", ""))
+	# The companion's sheet is already at the new phase, so the token takes it
+	# whole rather than this trying to work out the difference.
+	_call_companion(HTTPClient.METHOD_GET, "/api/npcs/%s/vtt" % id, null, func(code: int, data: Dictionary) -> void:
+		var outcome := "failed"
+		if code == 200:
+			outcome = "updated" if _apply_phase_sheet(str(change.get("entity_name", "")), data.get("sheet", {})) else "no_token"
+		_show_phase_alert(change, outcome))
+
+
+# Updates the token named `entity_name`. False if there isn't one on the map — a
+# boss can be tracked in the companion without ever being sent to the VTT.
+func _apply_phase_sheet(entity_name: String, sheet: Dictionary) -> bool:
+	if sheet.is_empty():
+		return false
+	var character = VttSheetWriter.find_character(Globals.char_tree, entity_name)
+	if character == null:
+		return false
+	VttSheetWriter.apply_update(character, sheet, rebaseline_character)
+	return true
+
+
+# outcome: "updated" — the token now matches the phase; "no_token" — nothing on
+# the map has this name; "failed" — the companion couldn't be reached for the sheet.
+func _phase_alert_text(change: Dictionary, outcome: String) -> String:
+	var paragraphs: Array = []
+	var description = change.get("description")
+	if typeof(description) == TYPE_STRING and description != "":
+		paragraphs.append(description)
+	var now: Array = []
+	if change.get("ac") != null:
+		now.append("AC %d" % int(change["ac"]))
+	if typeof(change.get("speed")) == TYPE_STRING and change["speed"] != "":
+		now.append("Speed %s" % change["speed"])
+	if not now.is_empty():
+		paragraphs.append("Now: " + " · ".join(PackedStringArray(now)))
+	var gains: Array = change.get("ability_names", [])
+	if not gains.is_empty():
+		paragraphs.append("Gains: " + ", ".join(PackedStringArray(gains)))
+	match outcome:
+		"updated":
+			paragraphs.append("The token has been updated.")
+		"no_token":
+			paragraphs.append("No token with this name is on the map, so nothing was updated.")
+		_:
+			paragraphs.append("Couldn't fetch the new stats from the companion, so the token wasn't updated. Use Update on VTT in the Characters tab.")
+	return "\n\n".join(PackedStringArray(paragraphs))
+
+
+# Not exclusive: the fight goes on behind it, and the GM shouldn't have to
+# dismiss it before moving a token.
+func _show_phase_alert(change: Dictionary, outcome: String) -> void:
+	var dialog := AcceptDialog.new()
+	dialog.title = "%s — Phase %d: %s" % [change.get("entity_name", "Boss"), int(change.get("number", 0)), change.get("name", "")]
+	dialog.dialog_text = _phase_alert_text(change, outcome)
+	dialog.dialog_autowrap = true
+	dialog.ok_button_text = "Got it"
+	dialog.exclusive = false
+	dialog.confirmed.connect(dialog.queue_free)
+	dialog.canceled.connect(dialog.queue_free)
+	get_tree().root.add_child(dialog)
+	dialog.popup_centered(Vector2i(480, 260))
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Internal helpers

@@ -83,6 +83,8 @@ const VttSheetWriter = preload("res://scripts/vtt_sheet_writer.gd")
 
 
 func _ready() -> void:
+	_place_on_open_map()
+	get_tree().root.size_changed.connect(_keep_on_screen)
 	# ── Connection tab ──────────────────────────────────────────────────────
 	var conn = $VBoxContainer/TabContainer/Connection
 	_url_input    = conn.get_node("URLInput")
@@ -211,6 +213,31 @@ func _ready() -> void:
 # Connection tab
 # ═══════════════════════════════════════════════════════════════════════════
 
+# ── Where the window sits ────────────────────────────────────────────────────
+# A Window with no position opens in the top-left corner — right on top of the
+# map toolbar, expanded or minimized. It opens instead over empty map, just left
+# of the right-hand tabs and under the top bar, stays wholly on screen, and goes
+# wherever the GM drags it from then on.
+
+const TOP_BAR = 84        # clear of the Bridge / Maps buttons: 44, plus the window's own title bar above its position
+const RIGHT_PANELS = 310  # the Characters / Object tabs and the roll panel
+const GAP = 12
+
+func _place_on_open_map() -> void:
+	var view := get_tree().root.get_visible_rect().size
+	position = Vector2i(int(view.x) - RIGHT_PANELS - size.x - GAP, TOP_BAR)
+	_keep_on_screen()
+
+
+# Pulls the window back inside the screen — after a resize of the app, or when
+# opening it grew past an edge. Leaves it alone otherwise, wherever it was put.
+func _keep_on_screen() -> void:
+	var view := get_tree().root.get_visible_rect().size
+	position = Vector2i(
+		clampi(position.x, 0, maxi(0, int(view.x) - size.x)),
+		clampi(position.y, 0, maxi(0, int(view.y) - size.y)))
+
+
 func _on_save_pressed() -> void:
 	EventBridge.save_config(_url_input.text, _secret_input.text, _path_input.text)
 
@@ -313,7 +340,11 @@ func _set_compact(compact: bool) -> void:
 	_mini_status.visible = compact
 	_minimize_button.text = "Expand" if compact else "Minimize"
 	_minimize_button.tooltip_text = "Show the full bridge panel" if compact else "Shrink this window to a small strip"
+	var old_width := size.x
 	size = COMPACT_SIZE if compact else _expanded_size
+	# Keep the right edge where it was, so it shrinks and grows toward the map.
+	position.x += old_width - size.x
+	_keep_on_screen()
 
 
 func update_status(status_text: String) -> void:

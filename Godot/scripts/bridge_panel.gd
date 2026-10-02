@@ -686,6 +686,9 @@ func _create_vtt_character(char_name: String, monster: Dictionary) -> void:
 	# Clear any attributes duplicated from the parent character folder —
 	# we want a clean slate populated entirely from the compendium stat block.
 	character.attributes.clear()
+	# A monster, not a player character: characters default to the player flag,
+	# which made every spawned monster light the map in Player view.
+	character.player_character = false
 
 	# ── Identity & core combat ───────────────────────────────────────────────
 	var hp  = int(monster.get("hpAverage", 1))

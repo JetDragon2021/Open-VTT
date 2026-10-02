@@ -1197,6 +1197,13 @@ func get_clicked(mouse_position: Vector2):
 				child = child.get_child(0)
 			if child.is_class("Node2D"): #inherits from Node2D
 				continue
+			# A line is only where it's drawn. Its box covers everything inside it,
+			# so a wall drawn round a room would swallow every click in the room.
+			if child.get_meta("type", "") == "line":
+				if _line_hit(child, mouse_position):
+					min_max_x_y = Vector4(child.position.x, child.position.y, child.position.x + child.size.x, child.position.y + child.size.y)
+					return child
+				continue
 #					print("mouse pos: ", mouse_position)
 #					print("pos: ", child.position)
 #					print("size: ", child.size)
@@ -1242,6 +1249,31 @@ func get_clicked(mouse_position: Vector2):
 					max(max(top_left.x,top_right.y),max(bottom_left.y,bottom_right.y)))
 					return child
 	return null
+
+# Whether a click lands on a drawn line: within its width, or a few screen
+# pixels either side so a thin wall can still be picked.
+func _line_hit(rect: Control, world_point: Vector2) -> bool:
+	var line: Line2D = null
+	for child in rect.get_children():
+		if child is Line2D:
+			line = child
+			break
+	if line == null or line.get_point_count() == 0:
+		return false
+	# Into the rectangle's own space, undoing its move, rotation and scale.
+	var scale_safe := Vector2(rect.scale.x if rect.scale.x != 0 else 1.0, rect.scale.y if rect.scale.y != 0 else 1.0)
+	var local := (world_point - rect.position).rotated(-rect.rotation) / scale_safe
+	var zoom: float = Globals.camera.zoom.x if Globals.camera != null else 1.0
+	var reach := maxf(line.width * 0.5, 8.0 / zoom) / minf(absf(scale_safe.x), absf(scale_safe.y))
+	var points := line.points
+	if points.size() == 1:
+		return (points[0] + line.position).distance_to(local) <= reach
+	for i in range(points.size() - 1):
+		var closest := Geometry2D.get_closest_point_to_segment(local, points[i] + line.position, points[i + 1] + line.position)
+		if closest.distance_to(local) <= reach:
+			return true
+	return false
+
 
 #get size of selection for selectbox
 func get_selection_size():

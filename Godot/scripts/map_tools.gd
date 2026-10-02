@@ -168,10 +168,15 @@ var _map_image_button: Button
 var _remove_map_button: Button
 var _player_view_button: Button
 var _walls_button: Button
+var _party_list: PanelContainer
+var _party_rows: VBoxContainer
+var _party_signature := ""
 var _last_tool := ""
 
 
 func _process(_delta):
+	if _party_list != null and _party_list.visible:
+		_refresh_party_list()
 	var key: String = Globals.tool + (str(Globals.measureTool) if Globals.tool == "measure" else "")
 	if key == _last_tool:
 		return
@@ -302,6 +307,29 @@ func _ready_map_image():
 	_player_view_button.toggled.connect(_on_player_view_toggled)
 	_tools.add_child(_player_view_button)
 
+	# Who counts as the party: every token, with a checkbox. Shown with Player view.
+	# Floats under the tool hint, over empty map: the toolbar column has no room
+	# below it (the Layers panel starts there).
+	var party_panel := PanelContainer.new()
+	var party_style := StyleBoxFlat.new()
+	party_style.bg_color = Color(0, 0, 0, 0.6)
+	party_style.set_corner_radius_all(6)
+	party_style.set_content_margin_all(8)
+	party_panel.add_theme_stylebox_override("panel", party_style)
+	party_panel.position = Vector2(160, 132)
+	party_panel.visible = false
+	_party_list = party_panel
+	var party_box := VBoxContainer.new()
+	var party_title := Label.new()
+	party_title.text = "👁 Who sees — tick the party"
+	party_title.add_theme_font_size_override("font_size", 14)
+	party_title.tooltip_text = "Tick the characters whose eyes the party sees through. Untick monsters and NPCs."
+	party_box.add_child(party_title)
+	_party_rows = VBoxContainer.new()
+	party_box.add_child(_party_rows)
+	party_panel.add_child(party_box)
+	add_child(party_panel)
+
 
 func _ready_hint():
 	var panel := PanelContainer.new()
@@ -346,7 +374,51 @@ func _show_active_tool(key: String) -> void:
 func _on_player_view_toggled(on: bool) -> void:
 	Globals.draw_comp.get_node("PartyVision").set_active(on)
 	_player_view_button.modulate = ACTIVE if on else Color.WHITE
+	_party_list.visible = on
+	_party_signature = ""
 	_last_tool = "" # refresh the hint line
+
+
+# The "Who sees" rows follow the tokens on the map: rebuilt when one is added,
+# removed, renamed or has its flag changed from somewhere else (its sheet).
+func _refresh_party_list() -> void:
+	var tokens: Array = Globals.draw_comp.get_node("PartyVision").tokens()
+	var signature := ""
+	for t in tokens:
+		signature += "%d:%s:%s|" % [t.get_instance_id(), _token_name(t), PartyVision.is_party_member(t.character)]
+	if signature == _party_signature:
+		return
+	_party_signature = signature
+	for row in _party_rows.get_children():
+		row.queue_free()
+	for t in tokens:
+		var box := CheckBox.new()
+		box.text = _token_name(t)
+		box.add_theme_font_size_override("font_size", 14)
+		box.button_pressed = PartyVision.is_party_member(t.character)
+		box.focus_mode = Control.FOCUS_CLICK
+		box.mouse_filter = Control.MOUSE_FILTER_PASS
+		box.toggled.connect(_on_party_member_toggled.bind(t))
+		_party_rows.add_child(box)
+
+
+func _token_name(token) -> String:
+	var attr = token.character.attributes.get("name")
+	var named := str(attr[1]) if attr is Array and attr.size() > 1 else ""
+	return named if named != "" else (token.character.name if token.character.name != "" else "Token")
+
+
+func _on_party_member_toggled(on: bool, token) -> void:
+	if not is_instance_valid(token):
+		return
+	token.synch_token_settings_on_other_peers.rpc(["player_character", on])
+	token.character.player_character = on
+	# A stat-block creature only counts when it says so (see is_party_member).
+	if on and token.character.attributes.has("cr"):
+		token.character.attributes["party_vision"] = ["yes", "yes"]
+	else:
+		token.character.attributes.erase("party_vision")
+	_party_signature = ""
 
 
 # ── Map image ──────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@
 # which lights can't reach in Godot 4, so the old FOV setting never showed
 # anything. Turning this off puts every light and setting back as it was.
 
+class_name PartyVision
 extends Node
 
 const UNSEEN = Color(0, 0, 0)
@@ -89,7 +90,7 @@ func set_active(on: bool) -> void:
 				layer.visible = true
 		_hidden_layers.clear()
 		_show_walls()
-	for token in _tokens():
+	for token in tokens():
 		if on:
 			_light_up(token)
 		else:
@@ -99,7 +100,7 @@ func set_active(on: bool) -> void:
 func _process(_delta: float) -> void:
 	# Tokens come and go, and sheets change — keep every PC's light current.
 	if active:
-		for token in _tokens():
+		for token in tokens():
 			_light_up(token)
 		_hide_walls()
 
@@ -125,7 +126,7 @@ func _show_walls() -> void:
 	_hidden_wall_lines.clear()
 
 
-func _tokens() -> Array:
+func tokens() -> Array:
 	var map: Map_res = Globals.map if Globals.map != null else Globals.new_map
 	if map == null:
 		return []
@@ -141,6 +142,15 @@ func _all_layers() -> Array:
 		found.append(item.get_meta("draw_layer"))
 		item = item.get_next_in_tree()
 	return found
+
+
+# Whether this character's token sees for the party. Characters default to the
+# player flag, and monsters spawned from the compendium before it was cleared on
+# spawn still have it — but a stat block has a challenge rating, and a player
+# character never does. A stat-block creature the GM ticked under "Who sees" (an
+# ally, a familiar) carries a "party_vision" attribute saying so.
+static func is_party_member(character: Character) -> bool:
+	return character.player_character and (not character.attributes.has("cr") or character.attributes.has("party_vision"))
 
 
 # How far this character sees right now, in feet (0 = not at all).
@@ -168,7 +178,7 @@ func _light_up(token) -> void:
 			"color": light.color,
 		})
 	var map: Map_res = Globals.map if Globals.map != null else Globals.new_map
-	var feet := sight_feet(token.character, map != null and map.darkness_enable) if token.character.player_character else 0.0
+	var feet := sight_feet(token.character, map != null and map.darkness_enable) if is_party_member(token.character) else 0.0
 	light.visible = feet > 0
 	if feet <= 0:
 		return

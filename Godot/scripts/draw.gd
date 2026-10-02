@@ -107,6 +107,9 @@ func _unhandled_input(event):
 	if event is InputEventMouse: #handle mouse envents
 		if Globals.draw_layer == null: #check if layer is selected
 			return
+		# Space held: the mouse is dragging the view (CameraMap.gd), not drawing.
+		if Globals.camera != null and Globals.camera.hand_held():
+			return
 		mouse_pos = get_global_mouse_position()
 		if Globals.snapping == true:
 	#		var snapping_camera_adjusted = get_node("../Camera2D").zoom

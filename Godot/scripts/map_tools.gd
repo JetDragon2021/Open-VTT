@@ -293,9 +293,11 @@ func _ready_hint():
 	add_child(panel)
 
 
+const VIEW_HINT = "Move the view: WASD, arrow keys (when nothing is selected), hold Space and drag, or drag with the middle mouse button. Shift = faster. Scroll wheel zooms."
+
 func _show_active_tool(key: String) -> void:
 	if _hint != null:
-		_hint.text = HINTS.get(key, "")
+		_hint.text = HINTS.get(key, "") + "\n" + VIEW_HINT
 	var measure: Button = _tools.get_node("HBoxContainer/Measure")
 	measure.text = {"measure2": "◎ Radius", "measure3": "◸ Cone"}.get(key, "📏 Ruler")
 	var draw: Control = _tools.get_node("Draw")

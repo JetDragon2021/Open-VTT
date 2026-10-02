@@ -1581,6 +1581,33 @@ func add_map_image(file: String, squares_wide: int) -> void:
 	await add_image(file, corner, layer, image_size.x if squares_wide > 0 else 0.0, true)
 
 
+# The map images on the map: pictures on the bottom layer, which is where the Map
+# image button puts them. (A saved map doesn't remember which picture came from
+# the button, so this is the rule it's recognised by.) Bottom-most first.
+func map_images() -> Array:
+	var found: Array = []
+	var layer = Globals.layers.bottom_layer()
+	for child in layer.get_children():
+		if child is Panel and child.get_meta("type", "") == "rect" and child.get_theme_stylebox("panel") is StyleBoxTexture:
+			found.append(child)
+	return found
+
+
+# Removes a map image for everyone (players' copies go too) and counts as one
+# undo step, so Ctrl+Z brings it back.
+func remove_map_image(image: Panel) -> void:
+	if not is_instance_valid(image):
+		return
+	if image in selected:
+		if select_box != null:
+			select_box.queue_free()
+		selected_tokens.clear()
+		selected.clear()
+		mouse_over_clear()
+	Globals.lobby.add_operation_to_undo_stack([Globals.lobby.undo_types.REMOVE, []])
+	remove_object(image, false, false, true)
+
+
 # Puts an image on `layer` as a textured panel at `begin`, copied into the
 # campaign's images (and sent to players) by the lobby. `width_px` > 0 scales it
 # to that width, keeping its shape; `to_back` puts it under the layer's other objects.

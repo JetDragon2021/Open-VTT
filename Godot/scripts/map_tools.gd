@@ -163,6 +163,7 @@ const HINTS = {
 @onready var _tools = $MarginContainer/VBoxContainer
 var _hint: Label
 var _map_image_button: Button
+var _remove_map_button: Button
 var _last_tool := ""
 
 
@@ -260,6 +261,17 @@ func _ready_map_image():
 	_tools.add_child(_map_image_button)
 	_tools.move_child(_map_image_button, _tools.get_node("Text").get_index() + 1)
 
+	_remove_map_button = Button.new()
+	_remove_map_button.text = "✕ Remove map"
+	_remove_map_button.tooltip_text = "Take a map image off this map (Ctrl+Z brings it back)."
+	_remove_map_button.focus_mode = Control.FOCUS_CLICK
+	_remove_map_button.mouse_filter = Control.MOUSE_FILTER_PASS
+	_remove_map_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_remove_map_button.add_theme_font_size_override("font_size", BUTTON_FONT)
+	_remove_map_button.pressed.connect(_choose_map_to_remove)
+	_tools.add_child(_remove_map_button)
+	_tools.move_child(_remove_map_button, _map_image_button.get_index() + 1)
+
 
 func _ready_hint():
 	var panel := PanelContainer.new()
@@ -311,6 +323,48 @@ func _choose_map_image():
 	dialog.canceled.connect(dialog.queue_free)
 	add_child(dialog)
 	dialog.popup_centered_ratio(0.6)
+
+
+# One map image: confirm and remove it. Several: pick which. None: say so.
+func _choose_map_to_remove():
+	var images: Array = Globals.draw_comp.map_images()
+	if images.is_empty():
+		var none := AcceptDialog.new()
+		none.title = "No map image"
+		none.dialog_text = "There's no map image on this map. Use 🗺 Map image to add one."
+		none.confirmed.connect(none.queue_free)
+		none.canceled.connect(none.queue_free)
+		add_child(none)
+		none.popup_centered()
+		return
+
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Remove map image"
+	dialog.ok_button_text = "Remove"
+	var box := VBoxContainer.new()
+	var info := Label.new()
+	info.text = "Remove this map image? Ctrl+Z brings it back." if images.size() == 1 else "Which map image should be removed? Ctrl+Z brings it back."
+	box.add_child(info)
+	var list := ItemList.new()
+	list.custom_minimum_size = Vector2(380, 40 + 28 * mini(images.size(), 6))
+	# Top-most first, the one you can see.
+	for i in range(images.size() - 1, -1, -1):
+		var image: Panel = images[i]
+		var path: String = image.get_theme_stylebox("panel").texture.get_meta("image_path", "")
+		var squares := MapMeasure.px_to_units(image.size.x * image.scale.x) / MapMeasure.unit_size()
+		list.add_item("%s  (%s squares wide)" % [path.get_file() if path != "" else "map image", MapMeasure.num(squares)])
+		list.set_item_metadata(list.item_count - 1, image)
+	list.select(0)
+	box.add_child(list)
+	dialog.add_child(box)
+	dialog.confirmed.connect(func() -> void:
+		var picked := list.get_selected_items()
+		if not picked.is_empty():
+			Globals.draw_comp.remove_map_image(list.get_item_metadata(picked[0]))
+		dialog.queue_free())
+	dialog.canceled.connect(dialog.queue_free)
+	add_child(dialog)
+	dialog.popup_centered()
 
 
 # Battle maps come with their own grid; saying how many squares wide it is makes

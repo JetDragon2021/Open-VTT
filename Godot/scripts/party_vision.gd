@@ -169,7 +169,7 @@ func _inputs() -> Dictionary:
 			continue
 		var reach: float = light.texture_scale * light.texture.get_height() / 2.0
 		lights.append([light.global_position, reach / 2.0, reach])
-	var walls := VisionGeometry.wall_segments(_all_layers())
+	var walls := VisionGeometry.wall_segments(all_layers())
 	for e in eyes:
 		signature += "|e%s,%s,%s" % [e[0].round(), e[1], e[2]]
 	for l in lights:
@@ -258,7 +258,7 @@ func tokens() -> Array:
 	return map.tokens.filter(func(t): return t != null and is_instance_valid(t) and t.is_inside_tree() and t.token_polygon != null)
 
 
-func _all_layers() -> Array:
+func all_layers() -> Array:
 	var found: Array = []
 	if Globals.layers == null:
 		return found
@@ -272,7 +272,7 @@ func _all_layers() -> Array:
 # Lights placed on the map: anything with Cast Light on.
 func _object_lights() -> Array:
 	var found: Array = []
-	for layer in _all_layers():
+	for layer in all_layers():
 		for child in layer.get_children():
 			if child is PointLight2D and child.get_meta("type", "") == "light" and child.texture != null:
 				found.append(child)
@@ -291,7 +291,7 @@ func _hide_for_players() -> void:
 	# The fog does the darkness; the GM's darkness tint and the lights' own glow
 	# would only darken or wash out what the party can see.
 	_hide_new_lights()
-	for layer in _all_layers():
+	for layer in all_layers():
 		if layer.visible and layer.get_meta("DM", 0):
 			_hide(layer, "visible", false)
 	_hide_new_walls()
@@ -312,7 +312,7 @@ func _hide_new_lights() -> void:
 
 # Walls are the GM's markings: players see where sight stops, not the pink line.
 func _hide_new_walls() -> void:
-	for layer in _all_layers():
+	for layer in all_layers():
 		for object in layer.get_children():
 			if Globals.draw_comp.is_wall(object):
 				for child in object.get_children():

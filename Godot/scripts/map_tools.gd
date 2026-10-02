@@ -159,7 +159,7 @@ const HINTS = {
 	"measure2": "Radius — drag out from a centre point to see a radius, like a fireball's 20 ft. Let go to clear it.",
 	"measure3": "Cone — drag from the caster to see a cone. Set its angle in the ▾ menu. Let go to clear it.",
 	"text": "Text — click the map to type a label.",
-	"light": "Light — click the map to put the chosen light there, or click a token to have that character carry it (it moves with them). Bright light, then dim beyond it: torch 20 + 20 ft, candle 5 + 5, lantern 30 + 30, Light spell 20 + 20, Daylight 60 + 60. Pick ✕ Remove a light and click a light or a token to take it away. Lights show in 👁 Player view on a dark map.",
+	"light": "Light — click the map to put the chosen light there, or click a token to have that character carry it (it moves with them). Bright light, then dim beyond it: torch 20 + 20 ft, candle 5 + 5, lantern 30 + 30, Light spell 20 + 20, Daylight 60 + 60. To take one away pick ✕ Remove light and click anywhere inside the lit area — the one that would go turns red. Rings show every light's reach.",
 	"wall": "Walls — click to start, click again for each corner. Double-click, right-click or Enter to finish; Esc cancels. Shift keeps it straight; ▦ Snap lines it up with the grid. Walls block sight in 👁 Player view, where they're hidden themselves. Remove one with Select + Delete.",
 }
 

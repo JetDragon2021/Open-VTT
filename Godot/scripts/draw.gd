@@ -105,6 +105,9 @@ func _ready():
 	var vision = preload("res://scripts/party_vision.gd").new()
 	vision.name = "PartyVision"
 	add_child(vision)
+
+	# The lit areas, drawn while the Light tool is in use.
+	add_child(preload("res://scripts/light_overlay.gd").new())
 	
 #handles all user input that wasn't handled by buttons, textedits etc.
 func _unhandled_input(event):
@@ -2885,21 +2888,60 @@ const LIGHT_COLOR = Color(1.0, 0.85, 0.6)
 
 
 func _light_click(at: Vector2) -> void:
-	var clicked = get_clicked(at)
-	var token = clicked.get_parent() if clicked != null and "character" in clicked.get_parent() else null
-	if token != null:
-		var c: Character = token.character
-		if light_preset == "remove":
-			c.attributes.erase("light")
-		else:
-			c.attributes["light"] = [light_preset, light_preset]
-		return
 	if light_preset == "remove":
-		if clicked != null and clicked.has_meta("light"):
-			Globals.lobby.add_operation_to_undo_stack([Globals.lobby.undo_types.REMOVE, []])
-			remove_object(clicked, false, false, true)
+		_remove_light_at(at)
+		return
+	# Clicking a token gives that character the light; anywhere else puts one down.
+	var clicked = get_clicked(at)
+	if clicked != null and "character" in clicked.get_parent():
+		clicked.get_parent().character.attributes["light"] = [light_preset, light_preset]
 		return
 	place_light(at, PartyVision.LIGHTS[light_preset])
+
+
+# Every light on the map: placed ones (a marker casting light) and ones a
+# character carries. Each is {kind, object, center, bright, reach}; reach is the
+# dim edge, in world pixels.
+func all_lights() -> Array:
+	var found: Array = []
+	var vision = get_node("PartyVision")
+	for layer in vision.all_layers():
+		for child in layer.get_children():
+			if child.has_meta("light") and not ("character" in child):
+				var light = get_object_light(child)
+				if light != null and light.texture != null:
+					var reach: float = light.texture_scale * light.texture.get_height() / 2.0
+					found.append({"kind": "marker", "object": child, "center": light.global_position, "bright": reach / 2.0, "reach": reach})
+	for token in vision.tokens():
+		var carried = PartyVision.light_feet(token.character)
+		if carried[1] > 0:
+			var center = token.token_polygon.get_global_transform() * (token.token_polygon.size / 2)
+			found.append({"kind": "token", "object": token, "center": center, "bright": MapMeasure.units_to_px(carried[0]), "reach": MapMeasure.units_to_px(carried[1])})
+	return found
+
+
+# The light a click means: the one whose lit area holds the point, and if several
+# do, the one the point is nearest the middle of. Null if no light reaches it.
+func light_at(point: Vector2):
+	var best = null
+	var best_ratio := INF
+	for light in all_lights():
+		var ratio: float = light.center.distance_to(point) / maxf(light.reach, 1.0)
+		if ratio <= 1.0 and ratio < best_ratio:
+			best = light
+			best_ratio = ratio
+	return best
+
+
+func _remove_light_at(at: Vector2) -> void:
+	var light = light_at(at)
+	if light == null:
+		return
+	if light.kind == "token":
+		light.object.character.attributes.erase("light")
+	else:
+		Globals.lobby.add_operation_to_undo_stack([Globals.lobby.undo_types.REMOVE, []])
+		remove_object(light.object, false, false, true)
 
 
 # A light on the map: a small warm marker casting light out to its dim edge.

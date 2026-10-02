@@ -176,6 +176,10 @@ func _unhandled_input(event):
 		if Globals.tool == "wall":
 			_wall_mouse(event)
 			return
+		if Globals.tool == "light":
+			if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+				_light_click(mouse_pos)
+			return
 		#pressed (not button)
 		if Input.is_action_just_pressed("mouseleft"):
 			print("mouse pressed")
@@ -2866,3 +2870,62 @@ func _cancel_wall() -> void:
 # The walls on the map: drawn lines that cast shadows.
 func is_wall(object) -> bool:
 	return object is ColorRect and object.get_meta("type", "") == "line" and object.has_meta("shadow")
+
+
+# ── Light tool ─────────────────────────────────────────────────────────────
+# Click the map to put a light there (a small marker that casts light), or a
+# token to have that character carry it - their "light" attribute, which moves
+# with them. "remove" takes either away. In Player view a light shows the party
+# what's in their line of sight around it (party_vision.gd).
+
+# The preset in use: a key of PartyVision.LIGHTS, or "remove".
+var light_preset := "torch"
+const LIGHT_MARKER = 24.0
+const LIGHT_COLOR = Color(1.0, 0.85, 0.6)
+
+
+func _light_click(at: Vector2) -> void:
+	var clicked = get_clicked(at)
+	var token = clicked.get_parent() if clicked != null and "character" in clicked.get_parent() else null
+	if token != null:
+		var c: Character = token.character
+		if light_preset == "remove":
+			c.attributes.erase("light")
+		else:
+			c.attributes["light"] = [light_preset, light_preset]
+		return
+	if light_preset == "remove":
+		if clicked != null and clicked.has_meta("light"):
+			Globals.lobby.add_operation_to_undo_stack([Globals.lobby.undo_types.REMOVE, []])
+			remove_object(clicked, false, false, true)
+		return
+	place_light(at, PartyVision.LIGHTS[light_preset])
+
+
+# A light on the map: a small warm marker casting light out to its dim edge.
+# (A light's radius is its dim edge; bright reaches half way, as for a torch.)
+func place_light(at: Vector2, feet: Array) -> CustomEllipse:
+	var marker := CustomEllipse.new()
+	marker.line_color = Color(0.45, 0.3, 0.1)
+	marker.back_color = Color(1.0, 0.8, 0.35, 0.9)
+	marker.line_width = 2
+	marker.light_mask = Globals.draw_layer.light_mask
+	marker.mouse_filter = Control.MOUSE_FILTER_PASS
+	marker.set_meta("polygon", true)
+	marker.set_meta("type", "circle")
+	marker.position = at - Vector2(LIGHT_MARKER, LIGHT_MARKER) / 2
+	marker.size = Vector2(LIGHT_MARKER, LIGHT_MARKER)
+	Globals.draw_layer.add_child(marker)
+	marker.set_owner(layers_root)
+	create_object_on_remote_peers(marker, true)
+	var reach: float = MapMeasure.units_to_px(feet[0] + feet[1])
+	var resolution := 256
+	create_or_enable_light(marker, {
+		"position": at,
+		"resolution": resolution,
+		"scale": reach * 2.0 / resolution,
+		"color": LIGHT_COLOR,
+		"energy": 1.0,
+		"offset": Vector2(LIGHT_MARKER, LIGHT_MARKER) / 2,
+	})
+	return marker

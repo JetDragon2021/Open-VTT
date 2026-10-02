@@ -159,6 +159,7 @@ const HINTS = {
 	"measure2": "Radius — drag out from a centre point to see a radius, like a fireball's 20 ft. Let go to clear it.",
 	"measure3": "Cone — drag from the caster to see a cone. Set its angle in the ▾ menu. Let go to clear it.",
 	"text": "Text — click the map to type a label.",
+	"light": "Light — click the map to put the chosen light there, or click a token to have that character carry it (it moves with them). Bright light, then dim beyond it: torch 20 + 20 ft, candle 5 + 5, lantern 30 + 30, Light spell 20 + 20, Daylight 60 + 60. Pick ✕ Remove a light and click a light or a token to take it away. Lights show in 👁 Player view on a dark map.",
 	"wall": "Walls — click to start, click again for each corner. Double-click, right-click or Enter to finish; Esc cancels. Shift keeps it straight; ▦ Snap lines it up with the grid. Walls block sight in 👁 Player view, where they're hidden themselves. Remove one with Select + Delete.",
 }
 
@@ -168,6 +169,15 @@ var _map_image_button: Button
 var _remove_map_button: Button
 var _player_view_button: Button
 var _walls_button: Button
+var _light_picker: OptionButton
+const LIGHT_ITEMS = [
+	["💡 Torch", "torch"],
+	["🕯 Candle", "candle"],
+	["🏮 Lantern", "lantern"],
+	["✨ Light spell", "light"],
+	["☀ Daylight", "daylight"],
+	["✕ Remove light", "remove"],
+]
 var _party_list: PanelContainer
 var _party_rows: VBoxContainer
 var _party_signature := ""
@@ -247,6 +257,24 @@ func _ready_walls():
 		Globals.tool_bar = _walls_button)
 	_tools.add_child(_walls_button)
 	_tools.move_child(_walls_button, _tools.get_node("Draw").get_index() + 1)
+
+	# Lights, in feet of bright + dim light (2024 rules). Pick one, click to use it.
+	_light_picker = OptionButton.new()
+	for item in LIGHT_ITEMS:
+		_light_picker.add_item(item[0])
+	_light_picker.tooltip_text = "Put a light on the map, or click a token to have that character carry it. In 👁 Player view, the party sees what it lights."
+	_light_picker.focus_mode = Control.FOCUS_CLICK
+	_light_picker.mouse_filter = Control.MOUSE_FILTER_PASS
+	_light_picker.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_light_picker.add_theme_font_size_override("font_size", BUTTON_FONT)
+	var use_light := func(index: int) -> void:
+		Globals.draw_comp.light_preset = LIGHT_ITEMS[index][1]
+		Globals.tool = "light"
+		Globals.tool_bar = _light_picker
+	_light_picker.item_selected.connect(use_light)
+	_light_picker.pressed.connect(func() -> void: use_light.call(_light_picker.selected))
+	_tools.add_child(_light_picker)
+	_tools.move_child(_light_picker, _walls_button.get_index() + 1)
 
 
 func _ready_ruler_modes():
@@ -352,7 +380,7 @@ func _ready_hint():
 
 
 const VIEW_HINT = "Move the view: WASD, arrow keys (when nothing is selected), hold Space and drag, or drag with the middle mouse button. Shift = faster. Scroll wheel zooms."
-const PLAYER_VIEW_HINT = "👁 Player view is on — this is what the party sees. Walls: shapes with Cast Shadow on. Darkness off = they see as far as the walls allow; on = only their darkvision. A \"sight\" attribute (ft) on a character overrides it."
+const PLAYER_VIEW_HINT = "👁 Player view is on — this is what the party sees. Walls stop sight. Darkness off (Map tab) = they see everything in line of sight; on = only what lights show them, plus their darkvision. Bright light shows fully, dim light and darkvision dimmed."
 
 func _show_active_tool(key: String) -> void:
 	if _hint != null:
@@ -366,8 +394,9 @@ func _show_active_tool(key: String) -> void:
 		"rect": draw, "lines": draw, "circle": draw,
 		"text": _tools.get_node("Text"),
 		"wall": _walls_button,
+		"light": _light_picker,
 	}.get(key, measure if key.begins_with("measure") else null)
-	for b in [_tools.get_node("Select"), draw, measure, _tools.get_node("Text"), _walls_button]:
+	for b in [_tools.get_node("Select"), draw, measure, _tools.get_node("Text"), _walls_button, _light_picker]:
 		b.modulate = ACTIVE if b == active else Color.WHITE
 
 

@@ -37,6 +37,12 @@ func _reading() -> Array:
 		return [MapMeasure.size_text(_draw.current_panel.size), beside_cursor]
 	if drawing and Globals.tool == "circle" and is_instance_valid(_draw.current_ellipse):
 		return [MapMeasure.size_text(_draw.current_ellipse.size, true), beside_cursor]
+	# A wall being drawn: the length of the segment following the mouse.
+	if Globals.tool == "wall" and is_instance_valid(_draw._wall_line):
+		var line: Line2D = _draw._wall_line
+		var n := line.get_point_count()
+		var end := line.get_point_position(n - 1)
+		return [MapMeasure.length_text(line.get_point_position(n - 2).distance_to(end)), end + Vector2(18, 18) / zoom]
 
 	if Globals.tool != "select" or not is_instance_valid(_draw.select_box):
 		return []

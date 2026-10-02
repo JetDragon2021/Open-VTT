@@ -88,6 +88,7 @@ func set_active(on: bool) -> void:
 			if is_instance_valid(layer):
 				layer.visible = true
 		_hidden_layers.clear()
+		_show_walls()
 	for token in _tokens():
 		if on:
 			_light_up(token)
@@ -100,6 +101,28 @@ func _process(_delta: float) -> void:
 	if active:
 		for token in _tokens():
 			_light_up(token)
+		_hide_walls()
+
+
+# Walls are the GM's markings: players see the shadow a wall casts, not the
+# pink line. Only the line is hidden — the shadow is its sibling and keeps working.
+var _hidden_wall_lines: Array = []
+
+func _hide_walls() -> void:
+	for layer in _all_layers():
+		for object in layer.get_children():
+			if Globals.draw_comp.is_wall(object):
+				for child in object.get_children():
+					if child is Line2D and child.visible:
+						child.visible = false
+						_hidden_wall_lines.append(child)
+
+
+func _show_walls() -> void:
+	for line in _hidden_wall_lines:
+		if is_instance_valid(line):
+			line.visible = true
+	_hidden_wall_lines.clear()
 
 
 func _tokens() -> Array:

@@ -9,6 +9,7 @@ func _ready():
 	$VBoxContainer/TextOptions/Panel/VBoxContainer/FontSizeSpinBox.get_line_edit().focus_mode = FOCUS_CLICK
 	$VBoxContainer/LineOptions/Panel/VBoxContainer/LineSpinBox.get_line_edit().focus_mode = FOCUS_CLICK
 	_ready_labels()
+	_ready_walls()
 	_ready_ruler_modes()
 	_ready_map_image()
 	_ready_hint()
@@ -158,6 +159,7 @@ const HINTS = {
 	"measure2": "Radius — drag out from a centre point to see a radius, like a fireball's 20 ft. Let go to clear it.",
 	"measure3": "Cone — drag from the caster to see a cone. Set its angle in the ▾ menu. Let go to clear it.",
 	"text": "Text — click the map to type a label.",
+	"wall": "Walls — click to start, click again for each corner. Double-click, right-click or Enter to finish; Esc cancels. Shift keeps it straight; ▦ Snap lines it up with the grid. Walls block sight in 👁 Player view, where they're hidden themselves. Remove one with Select + Delete.",
 }
 
 @onready var _tools = $MarginContainer/VBoxContainer
@@ -165,6 +167,7 @@ var _hint: Label
 var _map_image_button: Button
 var _remove_map_button: Button
 var _player_view_button: Button
+var _walls_button: Button
 var _last_tool := ""
 
 
@@ -224,6 +227,21 @@ func _ready_labels():
 	var texts = $VBoxContainer/TextOptions/Panel/VBoxContainer
 	texts.get_node("FontSizeSpinBox").tooltip_text = "Text size for new labels"
 	texts.get_node("FontColorPickerButton").tooltip_text = "Text colour for new labels"
+
+
+func _ready_walls():
+	_walls_button = Button.new()
+	_walls_button.text = "🧱 Walls"
+	_walls_button.tooltip_text = "Draw walls that block what the player characters can see in 👁 Player view."
+	_walls_button.focus_mode = Control.FOCUS_CLICK
+	_walls_button.mouse_filter = Control.MOUSE_FILTER_PASS
+	_walls_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_walls_button.add_theme_font_size_override("font_size", BUTTON_FONT)
+	_walls_button.pressed.connect(func() -> void:
+		Globals.tool = "wall"
+		Globals.tool_bar = _walls_button)
+	_tools.add_child(_walls_button)
+	_tools.move_child(_walls_button, _tools.get_node("Draw").get_index() + 1)
 
 
 func _ready_ruler_modes():
@@ -319,8 +337,9 @@ func _show_active_tool(key: String) -> void:
 		"select": _tools.get_node("Select"),
 		"rect": draw, "lines": draw, "circle": draw,
 		"text": _tools.get_node("Text"),
+		"wall": _walls_button,
 	}.get(key, measure if key.begins_with("measure") else null)
-	for b in [_tools.get_node("Select"), draw, measure, _tools.get_node("Text")]:
+	for b in [_tools.get_node("Select"), draw, measure, _tools.get_node("Text"), _walls_button]:
 		b.modulate = ACTIVE if b == active else Color.WHITE
 
 

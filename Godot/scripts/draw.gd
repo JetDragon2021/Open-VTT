@@ -173,6 +173,9 @@ func _unhandled_input(event):
 		if Input.is_action_just_pressed("mouseleft") and Globals.mouseOverButton:
 			draw_enable = false
 			return
+		if Globals.tool == "wall":
+			_wall_mouse(event)
+			return
 		#pressed (not button)
 		if Input.is_action_just_pressed("mouseleft"):
 			print("mouse pressed")
@@ -928,6 +931,15 @@ func _unhandled_input(event):
 								select_box.size.y = select_box.size.x
 								
 	elif event is InputEventKey: #handle keyboard events
+		# A wall being drawn takes Enter (finish) and Esc (cancel) — Esc would
+		# otherwise leave the map.
+		if _wall_rect != null and event.pressed:
+			if event.keycode == KEY_ESCAPE:
+				_cancel_wall()
+				return
+			if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
+				_finish_wall()
+				return
 		print("key pressed")
 		if Input.is_action_just_pressed("Delete") or Input.is_action_just_pressed("ui_cut"): #delete or cut selection
 			if selected.is_empty():
@@ -2497,6 +2509,11 @@ func create_object(parent_path: NodePath, node_name: String, object_data_arr):
 			occluder.occluder = OccluderPolygon2D.new()
 			occluder.occluder.polygon = object_data_arr[1][1]
 			occluder.occluder.cull_mode = object_data_arr[1][2]
+			# A line wall: its shadow is an open polyline in the line's own coordinates,
+			# offset like the Line2D above - rebuilt closed and unshifted, it landed elsewhere.
+			if node.get_meta("type", "") == "line":
+				occluder.occluder.closed = false
+				occluder.position = -node.position
 			occluder.light_mask = parent.light_mask
 			occluder.occluder_light_mask = parent.light_mask
 			node.add_child(occluder)
@@ -2509,6 +2526,11 @@ func create_object(parent_path: NodePath, node_name: String, object_data_arr):
 				occluder.occluder = OccluderPolygon2D.new()
 				occluder.occluder.polygon = object_data_arr[2][1]
 				occluder.occluder.cull_mode = object_data_arr[2][2]
+				# A line wall: its shadow is an open polyline in the line's own coordinates,
+				# offset like the Line2D above - rebuilt closed and unshifted, it landed elsewhere.
+				if node.get_meta("type", "") == "line":
+					occluder.occluder.closed = false
+					occluder.position = -node.position
 				occluder.light_mask = parent.light_mask
 				occluder.occluder_light_mask = parent.light_mask
 				node.add_child(occluder)
@@ -2697,3 +2719,118 @@ func update_other_peers_timer_start():
 
 func _on_tutorial_window_close_requested():
 	$TutorialWindow.hide()
+
+
+# ── Wall tool ──────────────────────────────────────────────────────────────
+# Click to start, click for each corner; double-click, right-click or Enter to
+# finish; Esc cancels. Shift keeps a segment horizontal, vertical or diagonal.
+# A finished wall is an ordinary line object that casts a shadow, so it saves,
+# syncs to players and undoes like any other line - and blocks sight in Player
+# view, where it's hidden itself (party_vision.gd).
+
+const WALL_COLOR = Color(1.0, 0.35, 0.75)
+const WALL_WIDTH = 6.0
+
+var _wall_rect: ColorRect = null
+var _wall_line: Line2D = null
+
+
+func _process(_delta):
+	# Switching tools mid-wall keeps what was drawn so far.
+	if _wall_rect != null and Globals.tool != "wall":
+		_finish_wall()
+
+
+func _wall_mouse(event) -> void:
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_RIGHT:
+			_finish_wall()
+		elif event.button_index == MOUSE_BUTTON_LEFT:
+			if event.double_click:
+				# Ends at the cursor: keep this corner too. If the double-click's
+				# first press already placed it, finishing merges the repeat.
+				if _wall_rect != null:
+					var corner = _wall_line.get_point_position(_wall_line.get_point_count() - 1)
+					_wall_line.add_point(corner)
+				_finish_wall()
+			elif _wall_rect == null:
+				_start_wall(mouse_pos)
+			else:
+				# Pin the corner where it is, and carry on from it.
+				var corner = _wall_line.get_point_position(_wall_line.get_point_count() - 1)
+				_wall_line.add_point(corner)
+	elif event is InputEventMouseMotion and _wall_rect != null:
+		var last = _wall_line.get_point_count() - 1
+		_wall_line.set_point_position(last, _wall_end(_wall_line.get_point_position(last - 1), mouse_pos))
+
+
+# With Shift held, the segment snaps to the nearest 45° direction.
+func _wall_end(from: Vector2, to: Vector2) -> Vector2:
+	if not Input.is_key_pressed(KEY_SHIFT) or from == to:
+		return to
+	var angle = snappedf((to - from).angle(), PI / 4)
+	return from + Vector2.from_angle(angle) * from.distance_to(to)
+
+
+func _start_wall(at: Vector2) -> void:
+	_wall_rect = ColorRect.new()
+	_wall_rect.color = Color(0, 0, 0, 0)
+	_wall_rect.mouse_filter = Control.MOUSE_FILTER_PASS
+	_wall_rect.light_mask = Globals.draw_layer.light_mask
+	_wall_rect.set_meta("polygon", true)
+	_wall_rect.set_meta("type", "line")
+	_wall_line = Line2D.new()
+	_wall_line.default_color = WALL_COLOR
+	_wall_line.width = WALL_WIDTH
+	_wall_line.material = unshaded_material # the GM sees walls even in the dark
+	_wall_line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	_wall_line.end_cap_mode = Line2D.LINE_CAP_ROUND
+	_wall_line.joint_mode = Line2D.LINE_JOINT_ROUND
+	Globals.draw_layer.add_child(_wall_rect)
+	_wall_rect.set_owner(layers_root)
+	_wall_rect.add_child(_wall_line)
+	_wall_line.set_owner(layers_root)
+	# Start, and the end that follows the mouse.
+	_wall_line.add_point(at)
+	_wall_line.add_point(at)
+
+
+func _finish_wall() -> void:
+	if _wall_rect == null:
+		return
+	# Drop the end that was following the mouse, and any corner clicked twice.
+	var points := PackedVector2Array()
+	for i in range(_wall_line.get_point_count() - 1):
+		var p = _wall_line.get_point_position(i)
+		if points.is_empty() or points[-1] != p:
+			points.append(p)
+	if points.size() < 2:
+		_cancel_wall()
+		return
+	_wall_line.points = points
+	# Same layout as a drawn line: a box around it for selecting, the line inside.
+	var lo = points[0]
+	var hi = points[0]
+	for p in points:
+		lo = lo.min(p)
+		hi = hi.max(p)
+	_wall_rect.set_begin(lo)
+	_wall_rect.set_end(hi)
+	_wall_line.position = -_wall_rect.position
+	var wall = _wall_rect
+	_wall_rect = null
+	_wall_line = null
+	create_object_on_remote_peers(wall, true)
+	create_or_enable_shadow(wall)
+
+
+func _cancel_wall() -> void:
+	if _wall_rect != null:
+		_wall_rect.queue_free()
+	_wall_rect = null
+	_wall_line = null
+
+
+# The walls on the map: drawn lines that cast shadows.
+func is_wall(object) -> bool:
+	return object is ColorRect and object.get_meta("type", "") == "line" and object.has_meta("shadow")

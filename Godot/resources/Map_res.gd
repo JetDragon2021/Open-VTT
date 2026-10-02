@@ -396,6 +396,11 @@ func load_data_for_self_and_children(file: FileAccess):
 			occluder.occluder = OccluderPolygon2D.new()
 			occluder.occluder.polygon = object_data_arr[1][1]
 			occluder.occluder.cull_mode = object_data_arr[1][2]
+			# A line wall: its shadow is an open polyline in the line's own coordinates,
+			# offset like the Line2D above - rebuilt closed and unshifted, it landed elsewhere.
+			if node.get_meta("type", "") == "line":
+				occluder.occluder.closed = false
+				occluder.position = -node.position
 			occluder.occluder_light_mask = Globals.draw_layer.light_mask
 			node.add_child(occluder)
 			occluder.name = object_data_arr[1][3]
@@ -406,6 +411,11 @@ func load_data_for_self_and_children(file: FileAccess):
 				occluder.occluder = OccluderPolygon2D.new()
 				occluder.occluder.polygon = object_data_arr[2][1]
 				occluder.occluder.cull_mode = object_data_arr[2][2]
+				# A line wall: its shadow is an open polyline in the line's own coordinates,
+				# offset like the Line2D above - rebuilt closed and unshifted, it landed elsewhere.
+				if node.get_meta("type", "") == "line":
+					occluder.occluder.closed = false
+					occluder.position = -node.position
 				occluder.occluder_light_mask = Globals.draw_layer.light_mask
 				node.add_child(occluder)
 				occluder.name = object_data_arr[2][3]

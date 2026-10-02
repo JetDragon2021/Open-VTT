@@ -100,6 +100,11 @@ func _ready():
 
 	# Sizes in feet next to a shape being drawn, and above whatever is selected.
 	add_child(preload("res://scripts/measure_overlay.gd").new())
+
+	# Player view: the map as the party sees it, toggled from the toolbar.
+	var vision = preload("res://scripts/party_vision.gd").new()
+	vision.name = "PartyVision"
+	add_child(vision)
 	
 #handles all user input that wasn't handled by buttons, textedits etc.
 func _unhandled_input(event):

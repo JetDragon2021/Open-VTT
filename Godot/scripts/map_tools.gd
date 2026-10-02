@@ -164,6 +164,7 @@ const HINTS = {
 var _hint: Label
 var _map_image_button: Button
 var _remove_map_button: Button
+var _player_view_button: Button
 var _last_tool := ""
 
 
@@ -272,6 +273,17 @@ func _ready_map_image():
 	_tools.add_child(_remove_map_button)
 	_tools.move_child(_remove_map_button, _map_image_button.get_index() + 1)
 
+	_player_view_button = Button.new()
+	_player_view_button.text = "👁 Player view"
+	_player_view_button.toggle_mode = true
+	_player_view_button.tooltip_text = "Show only what the player characters can see — the view to screen-share. Walls are shapes with Cast Shadow on (Object tab)."
+	_player_view_button.focus_mode = Control.FOCUS_CLICK
+	_player_view_button.mouse_filter = Control.MOUSE_FILTER_PASS
+	_player_view_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_player_view_button.add_theme_font_size_override("font_size", BUTTON_FONT)
+	_player_view_button.toggled.connect(_on_player_view_toggled)
+	_tools.add_child(_player_view_button)
+
 
 func _ready_hint():
 	var panel := PanelContainer.new()
@@ -294,10 +306,12 @@ func _ready_hint():
 
 
 const VIEW_HINT = "Move the view: WASD, arrow keys (when nothing is selected), hold Space and drag, or drag with the middle mouse button. Shift = faster. Scroll wheel zooms."
+const PLAYER_VIEW_HINT = "👁 Player view is on — this is what the party sees. Walls: shapes with Cast Shadow on. Darkness off = they see as far as the walls allow; on = only their darkvision. A \"sight\" attribute (ft) on a character overrides it."
 
 func _show_active_tool(key: String) -> void:
 	if _hint != null:
-		_hint.text = HINTS.get(key, "") + "\n" + VIEW_HINT
+		var player_view := _player_view_button != null and _player_view_button.button_pressed
+		_hint.text = HINTS.get(key, "") + "\n" + (PLAYER_VIEW_HINT if player_view else VIEW_HINT)
 	var measure: Button = _tools.get_node("HBoxContainer/Measure")
 	measure.text = {"measure2": "◎ Radius", "measure3": "◸ Cone"}.get(key, "📏 Ruler")
 	var draw: Control = _tools.get_node("Draw")
@@ -308,6 +322,12 @@ func _show_active_tool(key: String) -> void:
 	}.get(key, measure if key.begins_with("measure") else null)
 	for b in [_tools.get_node("Select"), draw, measure, _tools.get_node("Text")]:
 		b.modulate = ACTIVE if b == active else Color.WHITE
+
+
+func _on_player_view_toggled(on: bool) -> void:
+	Globals.draw_comp.get_node("PartyVision").set_active(on)
+	_player_view_button.modulate = ACTIVE if on else Color.WHITE
+	_last_tool = "" # refresh the hint line
 
 
 # ── Map image ──────────────────────────────────────────────────────────────
